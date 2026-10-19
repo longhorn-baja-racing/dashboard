@@ -35,5 +35,6 @@ def test_registry_wraps_factory_failures() -> None:
     registry = Registry[object]("importers")
     registry.register("broken", broken_factory)
 
-    with pytest.raises(FactoryError, match="Factory 'broken'.*registry 'importers'.*not configured"):
+    error_pattern = "Factory 'broken'.*registry 'importers'.*not configured"
+    with pytest.raises(FactoryError, match=error_pattern):
         registry.create("broken")

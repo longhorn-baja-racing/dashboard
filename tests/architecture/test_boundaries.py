@@ -51,7 +51,8 @@ def test_production_imports_respect_documented_boundaries() -> None:
                     if isinstance(node, ast.Import)
                     else [node.module or ""]
                 )
-                if any(name.startswith(("PySide6", "PyQt6", "PyQt5", "pyqtgraph")) for name in names):
+                qt_modules = ("PySide6", "PyQt6", "PyQt5", "pyqtgraph")
+                if any(name.startswith(qt_modules) for name in names):
                     violations.append(f"{path}: core imports Qt or PyQtGraph")
 
     assert violations == [], "Forbidden architecture imports:\n" + "\n".join(violations)
