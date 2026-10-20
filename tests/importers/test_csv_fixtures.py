@@ -1,6 +1,7 @@
 """Tests pinning the neutral sample fixtures to their documented values."""
 
 from pathlib import Path
+
 import pytest
 
 from lbr_dashboard.importers.csv_importer import CsvImporter
