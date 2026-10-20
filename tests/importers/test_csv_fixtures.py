@@ -45,7 +45,6 @@ def test_missing_timestamp_fixture_documents_current_behavior() -> None:
     assert session.numeric_column("sensor_a") == (1.0, 2.0, 3.0)
 
 
-
 def test_invalid_encoding_is_rejected() -> None:
     with pytest.raises(UnicodeDecodeError):
         CsvImporter().import_session(FIXTURES / "malformed" / "error_bad_encoding.csv")
