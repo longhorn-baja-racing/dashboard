@@ -47,4 +47,4 @@ def test_missing_timestamp_fixture_documents_current_behavior() -> None:
 
 def test_invalid_encoding_is_rejected() -> None:
     with pytest.raises(UnicodeDecodeError):
-        CsvImporter().import_session(FIXTURES / "error_bad_encoding.csv")
+        CsvImporter().import_session(FIXTURES / "malformed" / "error_bad_encoding.csv")
