@@ -31,7 +31,7 @@ def test_package_resource_lookup() -> None:
 def test_sample_csv_can_be_loaded() -> None:
     application = create_application([])
     window = create_main_window()
-    sample = Path(__file__).parents[2] / "sample_data" / "sample_baja_log.csv"
+    sample = Path(__file__).parents[2] / "sample_data" / "legacy" / "sample_baja_log.csv"
     window.load_csv(sample)
     assert window.left_panel.list_widget.count() == 16
     assert window.right_panel.table.rowCount() == 10

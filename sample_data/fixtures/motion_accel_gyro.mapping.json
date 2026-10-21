@@ -1,0 +1,7 @@
+{
+  "time": { "column": "ts_ms", "unit": "ms" },
+  "channels": {
+    "ax": { "label": "Acceleration X", "unit": "m/s^2" },
+    "gz": { "label": "Yaw rate", "unit": "deg/s" }
+  }
+}
