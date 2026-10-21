@@ -88,19 +88,24 @@ Run the same checks locally as CI:
 
 ```sh
 uv sync --locked --extra dev
-uv run --locked pytest
+uv run --locked pytest --cov --cov-report=xml
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked pyright
-uv build
+uv build --no-sources
+uv run --locked python scripts/check_package.py
 ```
 
 Tests set Qt's offscreen mode and require no physical telemetry hardware.
 CI runs Python 3.13 on Windows, macOS and Linux, and Python 3.10–3.12 on Linux.
-It checks the lockfile, tests, lint, formatting, typing and package builds.
+It checks the lockfile, lint, formatting, typing, dependency consistency, and regression tests with at least 90% branch-aware coverage. Python warnings, unknown pytest settings/markers, unexpected passing xfails, Qt critical logs, unhandled Qt callback exceptions, and hung tests fail the run. Both the wheel and source distribution must install in an isolated environment and launch, load CSV data, plot a selected signal, and resolve package resources without importing from the checkout.
 The Makefile provides optional shortcuts; Windows contributors can use the
 commands above without installing Make.
 
 Dependency changes update `pyproject.toml` and `uv.lock` together. Before
 distributing releases, the team must choose and include a project license and
 the required bundled-dependency notices.
+
+CI runs on pull requests, main pushes, merge queues, manual dispatches, and a weekly schedule. The stable `CI required` check fails if any platform job fails, is cancelled, or is skipped. Reports, coverage XML, and distributions are retained for seven days. Actions are pinned to commits; Dependabot proposes dependency and action updates weekly.
+
+Main requires up-to-date passing CI and a reviewed pull request; force pushes and deletion are blocked. Do not rename `CI required` without updating the GitHub branch rules. These checks exercise the current desktop shell and CSV workflow. Hardware telemetry, planned features, and native installers require their own acceptance tests when implemented.

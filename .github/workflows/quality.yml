@@ -1,16 +1,24 @@
 name: Quality
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
+  merge_group:
   workflow_dispatch:
+  schedule:
+    - cron: "43 9 * * 1"
 
 permissions:
   contents: read
 
+concurrency:
+  group: dashboard-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   quality:
+    name: Quality (${{ matrix.os }}, Python ${{ matrix.python-version }})
     strategy:
       fail-fast: false
       matrix:
@@ -24,10 +32,14 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.12"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       QT_QPA_PLATFORM: offscreen
+      PYTHONFAULTHANDLER: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Qt runtime libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes libegl1
@@ -37,8 +49,35 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --extra dev
-      - run: uv run --locked pytest
+      - run: uv pip check
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
       - run: uv run --locked pyright
-      - run: uv build
+      - name: Regression tests and branch coverage
+        run: uv run --locked pytest --cov --cov-report=xml --junitxml=test-results/pytest.xml
+      - name: Build distributions
+        run: uv build --no-sources
+      - name: Install and smoke-test the wheel and source distribution
+        run: uv run --locked python scripts/check_package.py
+      - name: Upload diagnostics and built packages
+        if: ${{ !cancelled() && hashFiles('test-results/**', 'coverage.xml', 'dist/*') != '' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: quality-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            test-results/
+            coverage.xml
+            dist/
+          retention-days: 7
+
+  required:
+    name: CI required
+    if: always()
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require the entire platform matrix to pass
+        env:
+          RESULT: ${{ needs.quality.result }}
+        run: test "$RESULT" = success
