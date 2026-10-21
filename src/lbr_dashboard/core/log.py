@@ -66,10 +66,13 @@ class LogSessionStore:
         self._session: LogSession | None = None
 
     def load(self, path: Path) -> bool:
-        """Load a session and return whether it contains a header row."""
+        """Replace the current session only when the import contains a header row."""
 
-        self._session = self._importer.import_session(path)
-        return bool(self._session.headers)
+        session = self._importer.import_session(path)
+        if not session.headers:
+            return False
+        self._session = session
+        return True
 
     @property
     def headers(self) -> tuple[str, ...]:
