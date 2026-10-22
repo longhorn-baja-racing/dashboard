@@ -38,6 +38,8 @@ def test_sample_csv_can_be_loaded() -> None:
     plot_item = window.right_panel.plot_widget.getPlotItem()
     assert plot_item is not None
     assert len(plot_item.listDataItems()) == 1
+    assert not hasattr(window, "_log_store")
+    assert hasattr(window, "_controller")
     window.close()
     application.processEvents()
 
