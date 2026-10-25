@@ -30,6 +30,9 @@ classifiers = [
 dev = [
     "pyright>=1.1,<2",
     "pytest>=8,<9",
+    "pytest-cov>=7,<8",
+    "pytest-qt>=4,<5",
+    "pytest-timeout>=2,<3",
     "ruff>=0.8,<1",
 ]
 
@@ -45,7 +48,23 @@ path = "src/lbr_dashboard/version.py"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra"
+addopts = "-ra --strict-config --strict-markers --import-mode=importlib"
+filterwarnings = ["error"]
+xfail_strict = true
+timeout = 30
+faulthandler_timeout = 20
+qt_api = "pyside6"
+qt_log_level_fail = "CRITICAL"
+
+[tool.coverage.run]
+source = ["lbr_dashboard"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
 line-length = 100
@@ -56,7 +75,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 venvPath = "."

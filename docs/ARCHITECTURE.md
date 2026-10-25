@@ -19,6 +19,8 @@ The check resolves relative and package-root imports, every imported alias, and
 literal `importlib.import_module` / `__import__` calls (including importlib aliases,
 literal relative packages, and literal `fromlist` entries).
 It is a static guard; computed module names are not resolved.
+Top-level Python modules belong to the application layer. Core, importers,
+and widgets cannot import that layer, including `dashboard_controller`.
 
 ## Ownership
 

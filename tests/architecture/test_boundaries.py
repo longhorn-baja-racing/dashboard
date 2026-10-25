@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 PACKAGE_ROOT = Path(__file__).parents[2] / "src" / "lbr_dashboard"
+APP_MODULES = {path.stem for path in PACKAGE_ROOT.glob("*.py") if path.stem != "__init__"}
 FORBIDDEN_IMPORTS = {
     "core": {"app", "ui", "importers"},
     "importers": {"app", "ui"},
-    "ui": {"importers"},
+    "ui": {"app", "importers"},
 }
 
 
@@ -97,6 +98,8 @@ def _violations(path: Path, source: str) -> list[str]:
     for name in names:
         parts = name.split(".")
         imported = parts[1] if parts[0] == "lbr_dashboard" and len(parts) > 1 else None
+        if imported in APP_MODULES:
+            imported = "app"
         if imported in FORBIDDEN_IMPORTS.get(layer, set()):
             violations.append(f"{path}: {layer} -> {imported}")
         if layer == "core" and parts[0] in {"PySide6", "PyQt6", "PyQt5", "pyqtgraph"}:
@@ -235,3 +238,21 @@ def test_relative_package_initializers(path: str) -> None:
 )
 def test_allowed_dynamic_imports(source: str) -> None:
     assert not _violations(PACKAGE_ROOT / "core" / "module.py", source)
+
+
+@pytest.mark.parametrize("layer", ["core", "importers", "ui"])
+@pytest.mark.parametrize("module", sorted(APP_MODULES))
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from lbr_dashboard import {module}",
+        "from .. import {module}",
+        "import importlib; importlib.import_module('lbr_dashboard.{module}')",
+    ],
+)
+def test_layers_cannot_import_top_level_application_modules(
+    layer: str,
+    module: str,
+    source: str,
+) -> None:
+    assert _violations(PACKAGE_ROOT / layer / "module.py", source.format(module=module))
