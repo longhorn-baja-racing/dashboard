@@ -18,6 +18,15 @@ import lbr_dashboard
 from lbr_dashboard.app import create_application, create_main_window, main
 from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
+from lbr_dashboard.core import SignalDescriptor, SignalSample, SignalSchema, SignalSeries
+
+descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
+                              timestamp_domain="device_monotonic")
+schema = SignalSchema(1, (descriptor,))
+assert SignalSchema.from_json(schema.to_json()).to_dict() == schema.to_dict()
+series = SignalSeries.from_samples(descriptor.identifier,
+    (SignalSample(10, 1, timestamp_domain="device_monotonic"),), descriptor=descriptor)
+assert SignalSeries.from_dict(series.to_dict(), descriptor=descriptor) == series
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
 metadata = distribution("lbr-dashboard")

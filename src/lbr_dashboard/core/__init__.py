@@ -10,6 +10,16 @@ from .lifecycle import (
 )
 from .log import LogImporter, LogSession, LogSessionStore
 from .registry import FactoryError, Registry, RegistryError
+from .signals import (
+    KNOWN_SIGNAL_TYPES,
+    SignalAvailability,
+    SignalDescriptor,
+    SignalRegistry,
+    SignalSample,
+    SignalSchema,
+    SignalSchemaError,
+    SignalSeries,
+)
 
 __all__ = [
     "BackgroundService",
@@ -25,4 +35,12 @@ __all__ = [
     "ServiceEvent",
     "ServiceFailure",
     "TelemetrySource",
+    "KNOWN_SIGNAL_TYPES",
+    "SignalAvailability",
+    "SignalDescriptor",
+    "SignalRegistry",
+    "SignalSample",
+    "SignalSchema",
+    "SignalSchemaError",
+    "SignalSeries",
 ]
