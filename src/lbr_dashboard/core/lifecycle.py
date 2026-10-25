@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from math import isfinite
 from threading import Event, Lock, Thread
+from time import monotonic
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
@@ -29,6 +31,20 @@ class CancellationToken:
     def raise_if_cancelled(self) -> None:
         if self.is_cancelled:
             raise CancellationRequested("Background work was cancelled")
+
+    def wait(self, timeout: float) -> bool:
+        """Wait up to a finite timeout, including linked cancellation signals."""
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise ValueError("timeout must be a finite nonnegative number")
+        if not 0 <= timeout <= 86400 or not isfinite(timeout):
+            raise ValueError("timeout must be between zero and 86400 seconds")
+        deadline = monotonic() + timeout
+        while not self.is_cancelled:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return False
+            self._event.wait(min(remaining, 0.02))
+        return True
 
 
 def _freeze(value: object) -> Any:

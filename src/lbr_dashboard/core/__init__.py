@@ -1,6 +1,18 @@
 """Framework-neutral contracts and lifecycle primitives."""
 
-from .contracts import EventSink, TelemetrySource
+from .contracts import (
+    EventSink,
+    SourceCapabilities,
+    SourceError,
+    SourceEvent,
+    SourceEventKind,
+    SourceEventQueue,
+    SourceHealth,
+    SourceQueueStats,
+    SourceState,
+    TelemetrySource,
+    UnsupportedSourceOperation,
+)
 from .lifecycle import (
     BackgroundService,
     CancellationRequested,
@@ -20,8 +32,19 @@ from .signals import (
     SignalSchemaError,
     SignalSeries,
 )
+from .sources import IteratorSource
 
 __all__ = [
+    "IteratorSource",
+    "SourceCapabilities",
+    "SourceError",
+    "SourceEvent",
+    "SourceEventKind",
+    "SourceEventQueue",
+    "SourceHealth",
+    "SourceQueueStats",
+    "SourceState",
+    "UnsupportedSourceOperation",
     "BackgroundService",
     "CancellationRequested",
     "CancellationToken",
