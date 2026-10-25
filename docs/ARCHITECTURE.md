@@ -15,6 +15,10 @@ It adds no runtime layers for providers that do not exist yet.
 The dependency direction is enforced by `tests/architecture/test_boundaries.py`.
 Core and importers never import the UI or the composition root. UI widgets do
 not import concrete importer implementations.
+The check resolves relative and package-root imports, every imported alias, and
+literal `importlib.import_module` / `__import__` calls (including importlib aliases,
+literal relative packages, and literal `fromlist` entries).
+It is a static guard; computed module names are not resolved.
 
 ## Ownership
 
@@ -22,6 +26,12 @@ not import concrete importer implementations.
   Provider selection belongs in this composition layer.
 - `DashboardController` owns `LogSessionStore`, handles UI requests, and passes
   decoded table rows or numeric series to the window for rendering.
+- `MainWindow.load_csv` calls the controller synchronously through a UI-defined
+  protocol, so filesystem and decoding exceptions reach programmatic callers.
+  File-dialog requests use `csv_requested`; the controller catches failures at
+  that Qt slot boundary, displays a status-bar error, and emits
+  `csv_load_failed(path, message)`. Failed imports retain the prior session;
+  a successful load clears the error message.
 - Widgets render the rows they receive. They do not open files, parse CSV, or
   retain a second copy of the imported model or numeric columns.
 - A `Registry` is a per-application selection mechanism. The current app uses
@@ -42,3 +52,11 @@ not import concrete importer implementations.
 token. Worker code can only enqueue immutable events; it cannot call a UI
 callback. After the worker finishes, the owner calls `join`, reads `failure`
 when needed, and drains queued events at its normal update boundary.
+
+## Legacy CSV loading
+
+Columns are selected by physical index, so repeated display names retain their
+own values. Name lookup returns the first occurrence (including `timestamp_ms`).
+Non-finite numeric cells become unavailable values and are omitted from plots.
+Successful empty loads clear columns, table cells, and plots; missing cells in
+a replacement file cannot retain values from the previous file.

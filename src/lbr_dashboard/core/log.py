@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, TypeAlias
@@ -18,6 +19,7 @@ class LogSession:
     headers: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
     numeric_columns: Mapping[str, NumericColumn]
+    columns_by_index: tuple[NumericColumn, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "headers", tuple(self.headers))
@@ -29,10 +31,16 @@ class LogSession:
                 {name: tuple(values) for name, values in self.numeric_columns.items()}
             ),
         )
+        indexed = self.columns_by_index or tuple(
+            self.numeric_columns.get(header, ()) for header in self.headers
+        )
+        object.__setattr__(self, "columns_by_index", tuple(tuple(values) for values in indexed))
 
-    def numeric_column(self, name: str) -> NumericColumn | None:
-        """Return the parsed values for one column, when that column exists."""
+    def numeric_column(self, name: str | int) -> NumericColumn | None:
+        """Look up a physical column by index, or the first column with a name."""
 
+        if isinstance(name, int):
+            return self.columns_by_index[name] if 0 <= name < len(self.columns_by_index) else None
         return self.numeric_columns.get(name)
 
     @classmethod
@@ -41,15 +49,19 @@ class LogSession:
 
         def as_float(value: str) -> float | None:
             try:
-                return float(value)
+                number = float(value)
+                return number if isfinite(number) else None
             except (TypeError, ValueError):
                 return None
 
-        columns = {
-            header: tuple(as_float(row[index]) if index < len(row) else None for row in rows)
-            for index, header in enumerate(headers)
-        }
-        return cls(headers, rows, columns)
+        indexed = tuple(
+            tuple(as_float(row[index]) if index < len(row) else None for row in rows)
+            for index in range(len(headers))
+        )
+        columns: dict[str, NumericColumn] = {}
+        for header, values in zip(headers, indexed):
+            columns.setdefault(header, values)
+        return cls(headers, rows, columns, indexed)
 
 
 class LogImporter(Protocol):
@@ -79,7 +91,7 @@ class LogSessionStore:
     def rows(self) -> tuple[tuple[str, ...], ...]:
         return self._session.rows if self._session is not None else ()
 
-    def numeric_column(self, name: str) -> NumericColumn | None:
+    def numeric_column(self, name: str | int) -> NumericColumn | None:
         """Return one numeric column from the current session."""
 
         if self._session is None:
