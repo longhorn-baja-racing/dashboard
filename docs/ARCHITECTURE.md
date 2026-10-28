@@ -50,6 +50,9 @@ and widgets cannot import that layer, including `dashboard_controller`.
 
 ## Worker lifecycle
 
+Sparse session storage, range/nearest queries, immutable snapshots, and bounded
+live retention are documented in [telemetry-sessions.md](telemetry-sessions.md).
+
 The concrete telemetry source lifecycle and bounded handoff are documented in
 [telemetry-sources.md](telemetry-sources.md). Sources own their worker/queue and
 expose persistent health; the older generic service below remains independent.
