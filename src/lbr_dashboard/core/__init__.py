@@ -22,6 +22,7 @@ from .lifecycle import (
 )
 from .log import LogImporter, LogSession, LogSessionStore
 from .registry import FactoryError, Registry, RegistryError
+from .session import RejectedSourceBatch, SessionRecord, SessionSnapshot, TelemetrySession
 from .signals import (
     KNOWN_SIGNAL_TYPES,
     SignalAvailability,
@@ -35,6 +36,10 @@ from .signals import (
 from .sources import IteratorSource
 
 __all__ = [
+    "RejectedSourceBatch",
+    "SessionRecord",
+    "SessionSnapshot",
+    "TelemetrySession",
     "IteratorSource",
     "SourceCapabilities",
     "SourceError",
