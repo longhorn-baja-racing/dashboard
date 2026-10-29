@@ -25,12 +25,17 @@ class MainWindow(QMainWindow):
     """Main application window that coordinates imported data and presentation."""
 
     csv_requested = Signal(str)
+    csv_loaded = Signal(str)
+    theme_requested = Signal(str)
+    clear_recent_requested = Signal()
     csv_load_failed = Signal(str, str)
     column_selected = Signal(int)
+    cell_edited = Signal(int, int, str)
 
     def __init__(self) -> None:
         super().__init__()
         self._controller: CsvLoader | None = None
+        self.preferences_controller: object | None = None
         self.setWindowTitle("LBR Dashboard")
         self.resize(1200, 700)
 
@@ -58,11 +63,19 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
+        self.right_panel.table.itemChanged.connect(
+            lambda item: self.cell_edited.emit(item.row(), item.column(), item.text())
+        )
 
     def attach_controller(self, controller: CsvLoader) -> None:
         """Keep the application controller alive without owning its model data."""
 
         self._controller = controller
+
+    def set_preference_choices(self, theme: str, recent_paths: tuple[str, ...]) -> None:
+        menu = self.menuBar()
+        if isinstance(menu, TopMenuBar):
+            menu.set_preference_choices(theme, recent_paths)
 
     def _select_column(self, column_index: int) -> None:
         """Highlight and plot the selected column, including the first selection."""

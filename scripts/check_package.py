@@ -20,7 +20,8 @@ from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
 from lbr_dashboard.core import (SignalDescriptor, SignalSample, SignalSchema, SignalSeries,
                                 IteratorSource, SourceEvent, SourceEventKind, TelemetrySession,
-                                SessionClock, PlaybackMode, SimulatorSource, example_signals)
+                                SessionClock, PlaybackMode, SimulatorSource, example_signals,
+                                Preferences, PreferencesStore, RecentSource)
 
 descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
                               timestamp_domain="device_monotonic")
@@ -62,6 +63,12 @@ sim_records = [event for event in simulator.events.drain()
                if event.kind is SourceEventKind.RECORD]
 assert len(sim_records) == 4
 assert simulator.health().terminal_reason == "complete" and simulator.close()
+from tempfile import TemporaryDirectory
+with TemporaryDirectory() as settings_directory:
+    settings_path = Path(settings_directory) / "preferences.json"
+    saved = Preferences("dark", (RecentSource("csv", "C:/example.csv"),))
+    PreferencesStore(settings_path).save(saved)
+    assert PreferencesStore(settings_path).reload().preferences == saved
 
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
