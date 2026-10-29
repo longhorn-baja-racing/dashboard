@@ -146,3 +146,31 @@ def test_memory_only_composition_does_not_write_user_preferences(
     qtbot.addWidget(view)
     menu(view).theme_actions["dark"].trigger()
     assert not list(tmp_path.rglob("preferences.json"))
+
+
+@pytest.mark.parametrize("theme", ["system", "light", "dark"])
+def test_late_added_toolbar_and_inspector_have_readable_theme_colors(
+    qtbot, tmp_path, theme
+) -> None:
+    from PySide6.QtWidgets import QPlainTextEdit, QToolBar, QToolButton
+
+    view, _, _ = window(qtbot, tmp_path / "preferences.json")
+    menu(view).theme_actions[theme].trigger()
+    toolbar = QToolBar(view)
+    view.addToolBar(toolbar)
+    toolbar.addAction("Load sample")
+    inspector = QPlainTextEdit(view)
+    inspector.setPlainText("Saved settings")
+    inspector.show()
+    qtbot.waitUntil(lambda: bool(toolbar.findChildren(QToolButton)))
+    button = toolbar.findChildren(QToolButton)[-1]
+    button.ensurePolished()
+    inspector.ensurePolished()
+    for widget, text_role, background_role in (
+        (button, QPalette.ColorRole.ButtonText, QPalette.ColorRole.Button),
+        (inspector, QPalette.ColorRole.Text, QPalette.ColorRole.Base),
+    ):
+        palette = widget.palette()
+        text = palette.color(text_role).lightness()
+        background = palette.color(background_role).lightness()
+        assert abs(text - background) > 100

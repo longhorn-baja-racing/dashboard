@@ -36,9 +36,11 @@ def apply_theme(window: MainWindow, theme: str) -> None:
     base = palette.color(QPalette.ColorRole.Base).name()
     text = palette.color(QPalette.ColorRole.WindowText).name()
     window.setStyleSheet(
-        "QMainWindow, QMenuBar, QMenu, QToolBar, QDockWidget, QStatusBar "
+        "QMainWindow, QMenuBar, QMenu, QToolBar, QToolButton, QPushButton, "
+        "QDockWidget, QStatusBar "
         f"{{ background-color: {background}; color: {text}; }}"
-        f"QListWidget, QTableWidget {{ background-color: {base}; color: {text}; }}"
+        f"QListWidget, QTableWidget, QPlainTextEdit "
+        f"{{ background-color: {base}; color: {text}; }}"
         f"QHeaderView, QHeaderView::section, QTableCornerButton::section "
         f"{{ background-color: {background}; color: {text}; }}"
         "QTableWidget::item:selected, QListWidget::item:selected "

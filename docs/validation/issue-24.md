@@ -16,7 +16,7 @@ Branch `codex/p1-24-local-preferences` starts from simulator commit `3e925a3`.
 
 ## Results
 
-- **638 strict tests passed**, warnings as errors; **98.46%** overall branch-aware
+- **641 strict tests passed**, warnings as errors; **98.46%** overall branch-aware
   coverage. Preference storage coverage rounds to 99%.
 - Ruff lint/format and Pyright passed. Installed wheel/source-distribution checks
   include preference save/reopen plus existing simulator/source/session/clock,
@@ -59,3 +59,11 @@ python scripts/check_package.py
 Use a supported offscreen backend for headless CI. Schema, bounds, migration,
 platform paths, UI behavior and filesystem/multi-writer limits are documented in
 `docs/local-preferences.md`. No PR/push is part of this local verification step.
+
+## Manual-review contrast correction
+
+The user's screenshot exposed low-contrast toolbar text for widgets added after
+theme setup. Explicit themed tool-button and inspector colors now cover late
+children. Three new native-widget cases check readable system/light/dark colors.
+The local harness starts with a temperature sample and keeps its inspector compact;
+restart still intentionally reloads preferences without automatically opening files.
