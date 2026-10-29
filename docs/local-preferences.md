@@ -123,3 +123,12 @@ with TemporaryDirectory() as directory:
 Tests cover real subprocess restart, theme/menu/window restart, corruption and
 backup recovery, invalid/oversized inputs, migration, unknown fields and injected
 write/fsync/replace failures. They use isolated settings paths.
+
+## Manual-review table edits
+
+The imported table supports in-memory cell edits. Commit an edit with Enter or
+leave the cell to refresh the selected plot from the updated application model.
+Timestamp edits recompute the selected signal's x coordinates; duplicate headings
+retain their physical column identity. Blank/non-numeric/non-finite text remains
+visible in the table and is treated as unavailable for numeric plotting. Edits
+do not save the source CSV or enter preference files; reloading restores file data.

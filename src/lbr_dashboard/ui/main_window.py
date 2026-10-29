@@ -30,6 +30,7 @@ class MainWindow(QMainWindow):
     clear_recent_requested = Signal()
     csv_load_failed = Signal(str, str)
     column_selected = Signal(int)
+    cell_edited = Signal(int, int, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -62,6 +63,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
+        self.right_panel.table.itemChanged.connect(
+            lambda item: self.cell_edited.emit(item.row(), item.column(), item.text())
+        )
 
     def attach_controller(self, controller: CsvLoader) -> None:
         """Keep the application controller alive without owning its model data."""

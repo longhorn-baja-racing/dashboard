@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from math import isfinite
 
 import pyqtgraph as pg
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from ...core.log import NumericColumn
@@ -52,13 +52,14 @@ class RightPanel(QWidget):
     def set_table(self, headers: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
         """Render rows without retaining the imported model or numeric arrays."""
 
-        self.table.clearContents()
-        self.table.setColumnCount(len(headers))
-        self.table.setRowCount(len(rows))
-        self.table.setHorizontalHeaderLabels(list(headers))
-        for row_index, row in enumerate(rows):
-            for column_index, value in enumerate(row[: len(headers)]):
-                self.table.setItem(row_index, column_index, QTableWidgetItem(value))
+        with QSignalBlocker(self.table):
+            self.table.clearContents()
+            self.table.setColumnCount(len(headers))
+            self.table.setRowCount(len(rows))
+            self.table.setHorizontalHeaderLabels(list(headers))
+            for row_index, row in enumerate(rows):
+                for column_index, value in enumerate(row[: len(headers)]):
+                    self.table.setItem(row_index, column_index, QTableWidgetItem(value))
 
     def highlight_column(self, column_index: int) -> None:
         self._reset_plot()

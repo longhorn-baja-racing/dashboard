@@ -16,7 +16,7 @@ Branch `codex/p1-24-local-preferences` starts from simulator commit `3e925a3`.
 
 ## Results
 
-- **641 strict tests passed**, warnings as errors; **98.46%** overall branch-aware
+- **650 strict tests passed**, warnings as errors; **98.48%** overall branch-aware
   coverage. Preference storage coverage rounds to 99%.
 - Ruff lint/format and Pyright passed. Installed wheel/source-distribution checks
   include preference save/reopen plus existing simulator/source/session/clock,
@@ -67,3 +67,14 @@ theme setup. Explicit themed tool-button and inspector colors now cover late
 children. Three new native-widget cases check readable system/light/dark colors.
 The local harness starts with a temperature sample and keeps its inspector compact;
 restart still intentionally reloads preferences without automatically opening files.
+
+## Manual-review graph edit correction
+
+The user reproduced editable table cells diverging from the application model.
+Cell edits now commit an immutable model update and redraw the selected plot,
+without writing the source file or preferences. Nine tests cover actual keyboard
+editor commit, value/timestamp updates, physical duplicate columns, ragged cells,
+non-finite/text/blank missingness, selection changes and reload/reset behavior.
+Programmatic table loading blocks edit signals. The native harness also checks
+changing the first pressure value to 20 updates the curve while CSV bytes stay
+unchanged.

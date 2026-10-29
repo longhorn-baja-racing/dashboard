@@ -14,8 +14,16 @@ class DashboardController:
     def __init__(self, window: MainWindow, importer: LogImporter) -> None:
         self._window = window
         self._log_store = LogSessionStore(importer)
+        self._selected_column = -1
         window.csv_requested.connect(self._on_csv_requested)
         window.column_selected.connect(self.select_column)
+        window.cell_edited.connect(self.edit_cell)
+
+    def edit_cell(self, row: int, column: int, text: str) -> None:
+        """Commit the displayed edit to the model before refreshing the selected plot."""
+        self._log_store.edit_cell(row, column, text)
+        self.select_column(self._selected_column)
+        self._window.statusBar().showMessage("Edited in memory; the source CSV file is unchanged.")
 
     def _on_csv_requested(self, file_path: str) -> None:
         """Report UI request failures before Qt can discard slot exceptions."""
@@ -37,6 +45,7 @@ class DashboardController:
 
         if not 0 <= column_index < len(self._log_store.headers):
             return
+        self._selected_column = column_index
         column_name = self._log_store.headers[column_index]
         self._window.plot_column(
             column_name,
