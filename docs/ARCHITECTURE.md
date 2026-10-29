@@ -50,6 +50,10 @@ and widgets cannot import that layer, including `dashboard_controller`.
 
 ## Worker lifecycle
 
+The [generic simulator](simulator.md) supplies deterministic descriptors and
+mixed-rate records through the ordinary source queue; generation is independent
+of the selected-time replay clock.
+
 Replay and live-follow use one application-owned [session clock](session-clock.md).
 Its subscribers receive one immutable selected-time frame; widgets do not own
 independent playback clocks or timers.
