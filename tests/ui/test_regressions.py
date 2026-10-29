@@ -60,7 +60,7 @@ def test_second_import_replaces_old_session(window: MainWindow, tmp_path: Path) 
     assert list(y_values) == [42.0]
 
 
-def test_empty_import_does_not_disconnect_displayed_data(
+def test_empty_import_clears_display_and_allows_another_load(
     window: MainWindow, tmp_path: Path
 ) -> None:
     path = tmp_path / "valid.csv"
@@ -69,6 +69,12 @@ def test_empty_import_does_not_disconnect_displayed_data(
     empty.write_text("")
     window.load_csv(path)
     window.load_csv(empty)
+    assert window.left_panel.list_widget.count() == 0
+    assert window.right_panel.table.rowCount() == 0
+    assert window.right_panel.table.columnCount() == 0
+    plot = window.right_panel.plot_widget.getPlotItem()
+    assert plot is not None and not plot.listDataItems()
+    window.load_csv(path)
     window.left_panel.list_widget.setCurrentRow(1)
     plot = window.right_panel.plot_widget.getPlotItem()
     assert plot is not None
