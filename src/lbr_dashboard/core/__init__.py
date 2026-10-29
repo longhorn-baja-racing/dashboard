@@ -21,6 +21,13 @@ from .lifecycle import (
     ServiceFailure,
 )
 from .log import LogImporter, LogSession, LogSessionStore
+from .preferences import (
+    Preferences,
+    PreferencesError,
+    PreferencesLoad,
+    PreferencesStore,
+    RecentSource,
+)
 from .registry import FactoryError, Registry, RegistryError
 from .session import RejectedSourceBatch, SessionRecord, SessionSnapshot, TelemetrySession
 from .session_clock import ClockSnapshot, ClockSubscriberError, PlaybackMode, SessionClock
@@ -38,6 +45,11 @@ from .simulator import SimulatedSignal, SimulatorSource, SimulatorStats, example
 from .sources import IteratorSource
 
 __all__ = [
+    "Preferences",
+    "PreferencesError",
+    "PreferencesLoad",
+    "PreferencesStore",
+    "RecentSource",
     "SimulatedSignal",
     "SimulatorSource",
     "SimulatorStats",

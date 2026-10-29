@@ -30,6 +30,7 @@ class DashboardController:
 
         self._log_store.load(Path(file_path))
         self._window.display_log(self._log_store.headers, self._log_store.rows)
+        self._window.csv_loaded.emit(str(file_path))
 
     def select_column(self, column_index: int) -> None:
         """Pass the selected numeric series to the presentation layer."""

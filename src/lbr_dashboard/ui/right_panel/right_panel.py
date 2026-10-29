@@ -17,24 +17,15 @@ class RightPanel(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        self._text_color = "#cccccc"
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground("#3a3a3a")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.2)
-        self.plot_widget.setTitle("Select a column to plot", color="#aaaaaa")
+        self.plot_widget.setTitle("Select a column to plot", color=self._text_color)
         self.plot_widget.getAxis("bottom").setPen(pg.mkPen("#cccccc"))
         self.plot_widget.getAxis("left").setPen(pg.mkPen("#cccccc"))
 
         self.table = QTableWidget()
-        self.table.setStyleSheet(
-            """
-            QTableWidget { background-color: #2a2a2a; color: #ffffff; gridline-color: #555555; }
-            QHeaderView::section {
-                background-color: #3a3a3a;
-                color: #ffffff;
-                border: 1px solid #555555;
-            }
-            """
-        )
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.plot_widget)
@@ -45,7 +36,18 @@ class RightPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
-        self.setStyleSheet("background-color: #3a3a3a; color: #ffffff;")
+
+    def set_theme_colors(self, background: str, text: str) -> None:
+        """Recolor existing presentation without changing plotted/table data."""
+        self._text_color = text
+        self.plot_widget.setBackground(background)
+        for name in ("bottom", "left"):
+            axis = self.plot_widget.getAxis(name)
+            axis.setPen(pg.mkPen(text))
+            axis.setTextPen(pg.mkPen(text))
+        plot = self.plot_widget.getPlotItem()
+        if plot is not None:
+            plot.setTitle(plot.titleLabel.text, color=text)
 
     def set_table(self, headers: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
         """Render rows without retaining the imported model or numeric arrays."""
@@ -70,7 +72,7 @@ class RightPanel(QWidget):
     def _reset_plot(self) -> None:
         self.plot_widget.clear()
         self.plot_widget.enableAutoRange()
-        self.plot_widget.setTitle("Select a column to plot", color="#aaaaaa")
+        self.plot_widget.setTitle("Select a column to plot", color=self._text_color)
 
     def plot_column(
         self,
@@ -107,7 +109,7 @@ class RightPanel(QWidget):
         ]
         self._reset_plot()
         if not pairs:
-            self.plot_widget.setTitle(f"{column_name} (no numeric data)", color="#aaaaaa")
+            self.plot_widget.setTitle(f"{column_name} (no numeric data)", color=self._text_color)
             return
 
         xs, ys = zip(*pairs)
@@ -120,6 +122,6 @@ class RightPanel(QWidget):
             symbolBrush="#00aaff",
         )
         self.plot_widget.enableAutoRange()
-        self.plot_widget.setTitle(column_name, color="#ffffff")
+        self.plot_widget.setTitle(column_name, color=self._text_color)
         self.plot_widget.setLabel("bottom", x_label)
         self.plot_widget.setLabel("left", column_name)
