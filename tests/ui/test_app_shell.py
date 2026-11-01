@@ -71,7 +71,7 @@ def test_time_axis_is_normalized_to_zero() -> None:
 def test_csv_load_errors_are_observable(tmp_path: Path, failure: str, ui_request: bool) -> None:
     application = create_application([])
     window = create_main_window()
-    sample = Path(__file__).parents[2] / "sample_data" / "sample_baja_log.csv"
+    sample = Path(__file__).parents[2] / "sample_data" / "legacy" / "sample_baja_log.csv"
     path = tmp_path / "bad.csv"
     error = FileNotFoundError if failure == "missing" else UnicodeDecodeError
     if failure == "encoding":

@@ -8,20 +8,23 @@ import pytest
 from lbr_dashboard.core.log import LogSessionStore
 from lbr_dashboard.importers.csv_importer import CsvImporter
 
-# Adjust parents[...] if the tests folder sits somewhere else relative to the repo root.
 FIXTURES = Path(__file__).resolve().parents[2] / "sample_data" / "fixtures"
+MALFORMED = FIXTURES / "malformed"
 LEGACY = FIXTURES.parent / "legacy" / "sample_baja_log.csv"
+
+# The column the app treats as time. Sharing this one name with the legacy sample is
+# intentional; every other column in the fixtures must be unrelated to it.
+APP_TIME_COLUMN = "timestamp_ms"
 
 EXPECTED_HEADERS = {
     "env_temp_pressure.csv": ("t_s", "coolant_temp_C", "line_pressure_kPa"),
-    "motion_accel_gyro.csv": ("ts_ms", "ax", "gz"),
-    "blank_timestamp_cell.csv": ("t_s", "sensor_a"),
+    "motion_accel_gyro.csv": (APP_TIME_COLUMN, "ax", "gz"),
 }
 
 
 @pytest.mark.parametrize(
     ("name", "time_column"),
-    [("env_temp_pressure.csv", "t_s"), ("motion_accel_gyro.csv", "ts_ms")],
+    [("env_temp_pressure.csv", "t_s"), ("motion_accel_gyro.csv", APP_TIME_COLUMN)],
 )
 def test_fixture_timestamps_increase_and_are_nonuniform(name: str, time_column: str) -> None:
     times = CsvImporter().import_session(FIXTURES / name).numeric_column(time_column)
@@ -43,7 +46,8 @@ def test_fixture_set_matches_documented_headers() -> None:
 
 def test_fixtures_share_no_headers_with_legacy_sample() -> None:
     legacy = {h.casefold() for h in CsvImporter().import_session(LEGACY).headers}
-    assert legacy, "legacy sample has no headers"
+    legacy -= {APP_TIME_COLUMN}
+    assert legacy, "legacy sample has no headers besides the time column"
     for path in sorted(FIXTURES.glob("*.csv")):
         headers = {h.casefold() for h in CsvImporter().import_session(path).headers}
         assert not headers & legacy, f"{path.name} reuses legacy columns: {headers & legacy}"
@@ -58,28 +62,27 @@ def test_env_fixture_keeps_blanks_as_gaps() -> None:
     assert session.numeric_column("line_pressure_kPa") == (101.3, 101.4, 101.9, 102.2, None, 103.0)
 
 
-def test_motion_fixture_uses_different_time_column() -> None:
+def test_motion_fixture_uses_timestamp_ms() -> None:
     session = CsvImporter().import_session(FIXTURES / "motion_accel_gyro.csv")
 
-    assert session.headers == ("ts_ms", "ax", "gz")
-    assert session.numeric_column("ts_ms") == (0.0, 5.0, 12.0, 30.0, 41.0)
+    assert session.headers == ("timestamp_ms", "ax", "gz")
+    assert session.numeric_column("timestamp_ms") == (0.0, 5.0, 12.0, 30.0, 41.0)
     assert session.numeric_column("ax") == (0.0, 0.1, 0.25, -0.05, 0.0)
     assert session.numeric_column("gz") == (0.0, 1.5, 3.0, None, 4.5)
 
 
 def test_blank_timestamp_cell_loads_as_gap() -> None:
-    # Current behavior: the importer has no notion of a time column, so a blank
-    # timestamp is just a None. If importer-side validation is added later, replace
-    # this test (and consider restoring an error_ fixture name) rather than
-    # patching around it.
-    session = CsvImporter().import_session(FIXTURES / "blank_timestamp_cell.csv")
+    # Importer-level behavior only: a blank cell is None, including in the time column.
+    # Time validation lives in the controller (#129), not in the importer.
+    session = CsvImporter().import_session(MALFORMED / "blank_timestamp_cell.csv")
 
-    assert session.numeric_column("t_s") == (0.0, None, 0.2)
+    assert session.headers == ("timestamp_ms", "sensor_a")
+    assert session.numeric_column("timestamp_ms") == (0.0, None, 200.0)
     assert session.numeric_column("sensor_a") == (1.0, 2.0, 3.0)
 
 
 def test_empty_fixture_loads_as_empty_session() -> None:
-    path = FIXTURES / "malformed" / "error_empty.csv"
+    path = MALFORMED / "error_empty.csv"
 
     session = CsvImporter().import_session(path)
 
@@ -90,8 +93,7 @@ def test_empty_fixture_loads_as_empty_session() -> None:
 
 
 def test_invalid_encoding_is_rejected() -> None:
-    # The importer currently lets the raw exception escape and the app shows the
-    # user nothing; user-facing handling is tracked in #103. Update this test when
-    # the importer wraps decode errors.
+    # The importer lets the raw exception escape; user-facing handling is tracked in #103.
+    # Update this test when the importer wraps decode errors.
     with pytest.raises(UnicodeDecodeError):
-        CsvImporter().import_session(FIXTURES / "malformed" / "error_bad_encoding.csv")
+        CsvImporter().import_session(MALFORMED / "error_bad_encoding.csv")

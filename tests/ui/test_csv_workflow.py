@@ -159,7 +159,7 @@ def test_first_load_failure_and_cancel_leave_empty_window(
     assert len(failures) == 1
     assert window.left_panel.list_widget.count() == 0
     assert window.right_panel.table.rowCount() == 0
-    sample = Path(__file__).parents[2] / "sample_data" / "sample_baja_log.csv"
+    sample = Path(__file__).parents[2] / "sample_data" / "legacy" / "sample_baja_log.csv"
     _trigger_open(window, monkeypatch, str(sample))
     assert window.right_panel.table.rowCount() == 10
     assert window.statusBar().currentMessage() == ""
