@@ -49,16 +49,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --extra dev
-      - run: uv pip check
-      - run: uv run --locked ruff check .
-      - run: uv run --locked ruff format --check .
-      - run: uv run --locked pyright
+      - run: uv run --locked python scripts/check_quality.py --stage dependencies
+      - run: uv run --locked python scripts/check_quality.py --stage lint
+      - run: uv run --locked python scripts/check_quality.py --stage format
+      - run: uv run --locked python scripts/check_quality.py --stage types
       - name: Regression tests and branch coverage
-        run: uv run --locked pytest --cov --cov-report=xml --junitxml=test-results/pytest.xml
+        run: uv run --locked python scripts/check_quality.py --stage tests
+      - name: Prove test, format, type and lock gates reject broken projects
+        run: uv run --locked python scripts/check_quality.py --stage gates
       - name: Build distributions
-        run: uv build --no-sources
+        run: uv run --locked python scripts/check_quality.py --stage build
       - name: Install and smoke-test the wheel and source distribution
-        run: uv run --locked python scripts/check_package.py
+        run: uv run --locked python scripts/check_quality.py --stage package
       - name: Upload diagnostics and built packages
         if: ${{ !cancelled() && hashFiles('test-results/**', 'coverage.xml', 'dist/*') != '' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
