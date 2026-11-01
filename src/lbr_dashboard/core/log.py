@@ -74,6 +74,10 @@ class LogSessionStore:
         self._session = session
         return True
 
+    def replace(self, session: LogSession) -> None:
+        """Commit an already decoded session on the owning application thread."""
+        self._session = session
+
     @property
     def headers(self) -> tuple[str, ...]:
         return self._session.headers if self._session is not None else ()
