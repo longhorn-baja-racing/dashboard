@@ -37,9 +37,37 @@ def test_fresh_launch_and_demo_buttons_have_real_values(window, qtbot):
     assert "Fictional" in window.source_label.text()
     window.left_panel.list_widget.setCurrentRow(2)
     assert series(window) == ((0, 45, 100), (101.2, 103.4, 0))
-    window.left_panel.list_widget.setCurrentRow(3)
-    assert not window.right_panel.plot_widget.getPlotItem().listDataItems()
-    assert "no numeric" in window.statusBar().currentMessage()
+    assert window.left_panel.list_widget.count() == 3
+    assert [window.left_panel.list_widget.item(i).text() for i in range(3)] == [
+        "timestamp_ms",
+        "lab.temperature",
+        "bench.pressure",
+    ]
+    assert window.right_panel.table.item(0, 3).text() == "ready"
+
+
+def test_hidden_text_column_does_not_shift_table_selection(window, qtbot, tmp_path):
+    path = tmp_path / "middle-text.csv"
+    path.write_text("note,timestamp_ms,missing,arbitrary.pressure\nready,0,,0\ndone,20,,7\n")
+    window.import_controller.start(path)
+    qtbot.waitUntil(lambda: window.import_state == "ready")
+    assert window.left_panel.list_widget.count() == 2
+    assert series(window) == ((0, 20), (0, 7))
+    assert {item.column() for item in window.right_panel.table.selectedItems()} == {3}
+    assert window.right_panel.table.item(0, 0).text() == "ready"
+    window.left_panel.list_widget.setCurrentRow(0)
+    assert {item.column() for item in window.right_panel.table.selectedItems()} == {1}
+
+
+def test_text_only_file_keeps_table_and_explains_empty_plot_selector(window, qtbot, tmp_path):
+    path = tmp_path / "text.csv"
+    path.write_text("note\nready\ndone\n")
+    window.import_controller.start(path)
+    qtbot.waitUntil(lambda: window.import_state == "ready")
+    assert window.left_panel.list_widget.count() == 0
+    assert window.right_panel.table.item(1, 0).text() == "done"
+    plot = window.right_panel.plot_widget.getPlotItem()
+    assert not plot.listDataItems() and "No numeric readings" in plot.titleLabel.text
 
 
 @pytest.mark.parametrize(

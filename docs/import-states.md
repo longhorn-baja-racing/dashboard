@@ -7,6 +7,12 @@ fixture; it is explicitly not a live sensor. Select `lab.temperature` or
 The table is read-only, so editing it cannot misleadingly appear to change the
 underlying data.
 
+The left plot selector lists only columns with at least one finite numeric
+reading. Text-only and entirely missing columns remain in the raw table but
+do not offer an empty graph. Original physical column indexes are retained for
+table highlighting even when filtered columns occur in the middle. A text-only
+file has an explicit no-numeric-readings plot message.
+
 File-menu and Open CSV imports use the existing CSV parser on one owned worker
 thread. An indeterminate activity bar, row count and Cancel import action remain
 responsive while reading. The previous graph/table remains available. A second
@@ -66,7 +72,7 @@ remote reporting is introduced.
 
 Windows, Python 3.12.14, PySide6/Qt 6.11.2:
 
-- **52 tests passed**, **97.05%** branch-aware coverage.
+- **54 tests passed**, **96.50%** branch-aware coverage after selector filtering.
 - **22 native Windows UI tests passed**, including real clipboard copy.
 - Native application smoke clicked production Open CSV, demo, details and copy
   buttons; verified actual demo series, visible loading, preserved data after a

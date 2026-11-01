@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication,
@@ -135,12 +136,13 @@ class MainWindow(QMainWindow):
     def _select_column(self, column_index: int) -> None:
         """Highlight and plot the selected column, including the first selection."""
 
-        self.right_panel.highlight_column(column_index)
         if column_index < 0:
+            self.right_panel.plot_widget.clear()
             return
 
         item = self.left_panel.list_widget.item(column_index)
         if item is not None:
+            self.right_panel.highlight_column(item.data(Qt.ItemDataRole.UserRole))
             column_name = item.text()
             self.right_panel.plot_column(
                 column_name,
@@ -168,8 +170,8 @@ class MainWindow(QMainWindow):
         if not self._log_store.load(file_path):
             return
 
-        self.left_panel.set_columns(list(self._log_store.headers))
         self.right_panel.set_table(self._log_store.headers, self._log_store.rows)
+        self._set_plot_columns()
         self.left_panel.list_widget.setCurrentRow(0)
         self._select_column(0)
         self.source_label.setText("Local CSV loaded. No live sensor connection.")
@@ -177,20 +179,36 @@ class MainWindow(QMainWindow):
 
     def present_session(self, session: LogSession) -> None:
         self._log_store.replace(session)
-        self.left_panel.set_columns(list(session.headers))
         self.right_panel.set_table(session.headers, session.rows)
+        self._set_plot_columns()
+        choices = self.left_panel.list_widget
         column = next(
-            (
-                i
-                for i, name in enumerate(session.headers)
-                if name != "timestamp_ms"
-                and any(value is not None for value in session.numeric_column(name) or ())
-            ),
-            0,
+            (i for i in range(choices.count()) if choices.item(i).text() != "timestamp_ms"),
+            0 if choices.count() else -1,
         )
         self.left_panel.list_widget.setCurrentRow(column)
         self._select_column(column)
         self.source_label.setText("Local CSV loaded. No live sensor connection.")
+
+    def _set_plot_columns(self) -> None:
+        choices = self.left_panel.list_widget
+        columns = [
+            (index, name)
+            for index, name in enumerate(self._log_store.headers)
+            if any(
+                value is not None and isfinite(value)
+                for value in self._log_store.numeric_column(name) or ()
+            )
+        ]
+        with QSignalBlocker(choices):
+            self.left_panel.set_columns([name for _, name in columns])
+            for row, (index, _) in enumerate(columns):
+                choices.item(row).setData(Qt.ItemDataRole.UserRole, index)
+        self.right_panel.plot_widget.clear()
+        if not columns:
+            self.right_panel.plot_widget.setTitle(
+                "No numeric readings to plot — view the raw data in the table"
+            )
 
     def set_import_state(self, state: str, message: str) -> None:
         self.import_state = state
