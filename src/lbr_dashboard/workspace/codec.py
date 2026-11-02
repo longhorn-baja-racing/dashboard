@@ -609,6 +609,28 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+_JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
+_BRACKET = re.compile(r"[\[\]{}]")
+
+
+def _nesting_depth(text: str) -> int:
+    """Deepest bracket nesting outside string literals, computed without recursion.
+
+    Checked before ``json.loads`` so pathological input is refused without
+    relying on interpreter recursion limits, which differ by platform and
+    Python version (and on Windows protect a smaller native stack).
+    """
+
+    depth = deepest = 0
+    for match in _BRACKET.finditer(_JSON_STRING.sub("", text)):
+        if match.group() in "[{":
+            depth += 1
+            deepest = max(deepest, depth)
+        else:
+            depth -= 1
+    return deepest
+
+
 def loads_workspace(text: str | bytes, **options: Any) -> Workspace:
     """Parse and validate workspace JSON text or UTF-8 bytes."""
 
@@ -621,11 +643,13 @@ def loads_workspace(text: str | bytes, **options: Any) -> Workspace:
         raise _fail(
             "$", "decode", f"not UTF-8 text ({error.reason} at byte {error.start})"
         ) from None
+    if _nesting_depth(decoded) > MAX_JSON_DEPTH:
+        raise _fail("$", "too_deep", f"nesting is limited to {MAX_JSON_DEPTH} levels")
     try:
         data = json.loads(
             decoded, object_pairs_hook=_unique_object, parse_constant=_reject_constant
         )
-    except RecursionError:
+    except RecursionError:  # pragma: no cover - the depth pre-check makes this unreachable
         raise _fail("$", "too_deep", f"nesting is limited to {MAX_JSON_DEPTH} levels") from None
     except json.JSONDecodeError as error:
         raise _fail(

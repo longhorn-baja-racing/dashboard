@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -487,6 +486,7 @@ def test_text_round_trip_and_bom() -> None:
         (b"\xff\xfe\x00", "decode"),
         (b" " * (codec.MAX_DOCUMENT_BYTES + 1), "too_large"),
     ],
+    ids=["syntax", "duplicate-key", "nan", "infinity", "not-utf8", "too-large"],
 )
 def test_malformed_text_is_rejected_with_one_structured_issue(raw: bytes, code: str) -> None:
     with pytest.raises(WorkspaceError) as caught:
@@ -495,18 +495,35 @@ def test_malformed_text_is_rejected_with_one_structured_issue(raw: bytes, code: 
     assert caught.value.issues[0].location == "$"
 
 
-def test_deep_json_is_refused_at_the_offending_location() -> None:
+def test_deep_json_text_is_refused_before_parsing() -> None:
     with pytest.raises(WorkspaceError) as caught:
         loads_workspace("[" * 40 + "]" * 40)
+    assert caught.value.codes == {"too_deep"}
+    assert caught.value.issues[0].location == "$"
+
+
+def test_deep_decoded_data_is_refused_at_the_offending_location() -> None:
+    nested: list[Any] = []
+    for _ in range(40):
+        nested = [nested]
+    with pytest.raises(WorkspaceError) as caught:
+        workspace_from_dict(nested)
     assert caught.value.codes == {"too_deep"}
     assert caught.value.issues[0].location == "$" + "[0]" * 32
 
 
-def test_extremely_deep_json_does_not_crash() -> None:
-    depth = max(sys.getrecursionlimit() * 2, 400_000)
+def test_pathological_nesting_is_refused_without_recursing() -> None:
+    depth = 400_000
     with pytest.raises(WorkspaceError) as caught:
         loads_workspace("[" * depth + "]" * depth)
     assert caught.value.codes == {"too_deep"}
+
+
+def test_brackets_inside_strings_do_not_count_as_nesting() -> None:
+    data = minimal()
+    data["widgets"][0]["title"] = '[{"x": [[[[' * 10 + 'escaped \\" quote'
+    workspace = loads_workspace(json.dumps(data))
+    assert workspace.widgets[0].title == data["widgets"][0]["title"]
 
 
 def test_non_json_python_values_are_refused() -> None:
