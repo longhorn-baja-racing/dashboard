@@ -69,9 +69,15 @@ def peak_memory_mb() -> float:
         counters = Counters()
         counters.cb = ctypes.sizeof(Counters)
         windll: Any = getattr(ctypes, "windll")
-        windll.psapi.GetProcessMemoryInfo(
-            windll.kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
-        )
+        # Declare signatures: without them the GetCurrentProcess pseudo-handle
+        # is truncated to 32 bits and the call fails, reporting 0 bytes.
+        current = windll.kernel32.GetCurrentProcess
+        current.restype = wintypes.HANDLE
+        query = windll.psapi.GetProcessMemoryInfo
+        query.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+        query.restype = wintypes.BOOL
+        if not query(current(), ctypes.byref(counters), counters.cb):
+            raise OSError("GetProcessMemoryInfo failed")
         return counters.PeakWorkingSetSize / 1e6
     import resource
 
@@ -94,7 +100,11 @@ def total_memory_gb() -> float | None:
             status = Status()
             status.dwLength = ctypes.sizeof(Status)
             windll: Any = getattr(ctypes, "windll")
-            windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+            query = windll.kernel32.GlobalMemoryStatusEx
+            query.argtypes = [ctypes.POINTER(Status)]
+            query.restype = ctypes.c_int
+            if not query(ctypes.byref(status)):
+                return None
             return status.ullTotalPhys / 1e9
         if sys.platform == "darwin":
             out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True)
