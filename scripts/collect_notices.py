@@ -29,20 +29,11 @@ ROOT = Path(__file__).resolve().parents[1]
 LICENSES = ROOT / "licenses"
 PROJECT = "lbr-dashboard"
 
-#: Wheels that contain no license text. Qt for Python is used under the
-#: LGPL-3.0, which incorporates the GPL-3.0, so both texts must ship.
-SUPPLEMENTAL = {
-    "pyside6": ("LGPL-3.0.txt", "GPL-3.0.txt"),
-    "pyside6-essentials": ("LGPL-3.0.txt", "GPL-3.0.txt"),
-    "pyside6-addons": ("LGPL-3.0.txt", "GPL-3.0.txt"),
-    "shiboken6": ("LGPL-3.0.txt", "GPL-3.0.txt"),
-}
-SOURCE_OFFERS = {
-    "pyside6": "https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v{version}",
-    "pyside6-essentials": "https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v{version}",
-    "pyside6-addons": "https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v{version}",
-    "shiboken6": "https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v{version}",
-}
+#: Qt for Python wheels (PySide6 and all its split packages, and shiboken6)
+#: contain no license text. They are used under the LGPL-3.0, which
+#: incorporates the GPL-3.0, so both texts must ship with them.
+QT_LICENSE_TEXTS = ("LGPL-3.0.txt", "GPL-3.0.txt")
+QT_FOR_PYTHON_SOURCE = "https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v{version}"
 QT_SOURCE = "https://download.qt.io/official_releases/qt/"
 _LICENSE_NAME = re.compile(r"(LICEN[CS]E|COPYING|NOTICE)", re.IGNORECASE)
 
@@ -95,16 +86,24 @@ def license_files(distribution: metadata.Distribution) -> tuple[Path, ...]:
     return tuple(sorted(found))
 
 
+def is_qt_for_python(name: str) -> bool:
+    """PySide6, its split wheels (essentials, addons, pdf, webengine, ...) and shiboken6."""
+
+    return name == "shiboken6" or name == "pyside6" or name.startswith("pyside6-")
+
+
 def _component(distribution: metadata.Distribution) -> Component:
     name = normalize(distribution.metadata["Name"])
-    source = SOURCE_OFFERS.get(name)
+    qt = is_qt_for_python(name)
+    # Split wheels can carry a build suffix (6.12.0.140); the source tag is v6.12.0.
+    release = ".".join(distribution.version.split(".")[:3])
     return Component(
         name=name,
         version=distribution.version,
         license=license_of(distribution),
         files=license_files(distribution),
-        supplemental=SUPPLEMENTAL.get(name, ()),
-        source=source.format(version=distribution.version) if source else None,
+        supplemental=QT_LICENSE_TEXTS if qt else (),
+        source=QT_FOR_PYTHON_SOURCE.format(version=release) if qt else None,
     )
 
 

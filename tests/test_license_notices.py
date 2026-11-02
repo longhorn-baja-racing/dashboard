@@ -87,6 +87,34 @@ def test_command_line_check_and_out(tmp_path: Path) -> None:
     assert (tmp_path / "n" / "THIRD-PARTY-NOTICES.txt").is_file()
 
 
+def test_all_qt_for_python_wheels_get_lgpl_texts_and_source_links() -> None:
+    for name in (
+        "pyside6",
+        "pyside6-essentials",
+        "pyside6-addons",
+        "pyside6-pdf",
+        "pyside6-webengine",
+        "shiboken6",
+    ):
+        assert notices.is_qt_for_python(name), name
+    for name in ("pyqtgraph", "pyside2", "pyside6x", "numpy"):
+        assert not notices.is_qt_for_python(name), name
+
+    class Metadata(dict):
+        def get_all(self, key: str) -> list[str] | None:
+            return [self[key]] if key in self else None
+
+    class Dist:
+        metadata = Metadata(Name="PySide6_WebEngine", License="LGPL-3.0-only")
+        version = "6.12.0.140"
+        files: list[object] = []
+
+    component = notices._component(Dist())  # type: ignore[arg-type]
+    assert component.name == "pyside6-webengine" and component.has_notices
+    assert component.supplemental == ("LGPL-3.0.txt", "GPL-3.0.txt")
+    assert component.source is not None and component.source.endswith("?h=v6.12.0")
+
+
 def test_license_name_fallbacks() -> None:
     class Fake:
         def __init__(self, data: dict[str, object]) -> None:

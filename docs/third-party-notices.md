@@ -12,7 +12,7 @@ or the packaging tool changes.
 | Component | License (from package metadata) | Notice files |
 | --- | --- | --- |
 | lbr-dashboard | MIT | `LICENSE` |
-| PySide6, PySide6-Essentials, PySide6-Addons, shiboken6 (Qt for Python and the Qt libraries it bundles) | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only; we use it under **LGPL-3.0** | None in the wheels; `licenses/LGPL-3.0.txt` and `licenses/GPL-3.0.txt` from this repository |
+| PySide6 and its split wheels (PySide6-Essentials, PySide6-Addons, and from 6.12 PySide6-Pdf and PySide6-WebEngine), shiboken6 (Qt for Python and the Qt libraries it bundles) | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only; we use it under **LGPL-3.0** | None in the wheels; `licenses/LGPL-3.0.txt` and `licenses/GPL-3.0.txt` from this repository |
 | pyqtgraph | MIT | package `LICENSE.txt` (plus CC-BY notice for bundled color maps) |
 | numpy | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | package license files, including bundled libraries |
 | colorama | BSD-3-Clause | package `LICENSE.txt` |
