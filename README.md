@@ -80,9 +80,10 @@ Planned releases target Windows first: a portable ZIP and an installer
 has been published yet. macOS and Linux distributions are deferred until the
 Windows release works; CI keeps running on all three platforms for development.
 
-The project does not have a license yet. One must be chosen, together with the
-required third-party notices, before any release is distributed
-([#106](https://github.com/longhorn-baja-racing/dashboard/issues/106)).
+The dashboard is released under the [MIT License](LICENSE). Packaged builds
+also contain third-party components under their own licenses; what each one
+requires, and where the notices must go in a Windows build, is listed in
+[third-party notices](docs/third-party-notices.md).
 
 ## Branch and contribution workflow
 
