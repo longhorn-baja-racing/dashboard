@@ -56,7 +56,7 @@ jobs:
       - name: Regression tests and branch coverage
         run: uv run --locked python scripts/check_quality.py --stage tests
       - name: Prove test, format, type and lock gates reject broken projects
-        run: uv run --locked python scripts/check_quality.py --stage gates
+        run: uv run --locked python scripts/check_quality_gates.py
       - name: Build distributions
         run: uv run --locked python scripts/check_quality.py --stage build
       - name: Install and smoke-test the wheel and source distribution

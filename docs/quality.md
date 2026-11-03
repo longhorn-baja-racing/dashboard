@@ -38,8 +38,9 @@ The runner does not install uv itself. Dependency edits must update `uv.lock`.
 
 `scripts/check_quality_gates.py` copies the current source, tests, sample CSV and
 project configuration into a disposable directory under `test-results/gates`.
-It uses the installed locked tools and the same test/format/type command
-definitions as the quality runner. The only copied Pyright setting changed is
+It invokes each copied `check_quality.py --stage` entry point for both the clean
+and deliberately broken case. CI invokes the verifier script directly so a
+failure masked by the wrapper makes the verifier fail. The copied Pyright setting changed is
 the environment location, so the isolated source uses the existing dependencies.
 
 Each gate must first accept the clean copy, then reject its deliberate defect
@@ -52,11 +53,9 @@ with the expected exit code **and a specific diagnostic**:
 | Types | A string assigned to a declared integer under `src` | Pyright exit 1 and `reportAssignmentType` |
 | Lock | A new direct dependency without updating `uv.lock` | `uv sync --locked` exit 1 and the stale-lock diagnostic |
 
-The clean lock control uses `uv lock --check --offline`, which validates the
-unchanged lock without installing into a developer environment. The broken lock
-control exercises the actual CI `sync --locked` operation; any environment it
-creates is confined to the disposable copy. As with ordinary dependency resolution,
-this broken-lock case may contact the package index for resolver metadata.
+Both lock controls invoke the copied runner's `sync` stage with the same command.
+Its environment is confined to the disposable copy. Dependency resolution can
+contact the package index for metadata.
 Tool absence, network resolution errors, crashes,
 or timeouts cannot count as the intended defect being caught.
 

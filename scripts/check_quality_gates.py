@@ -10,12 +10,13 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from check_quality import ROOT, command
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def check(args: list[str], directory: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(QT_QPA_PLATFORM="offscreen", PYTHONFAULTHANDLER="1", UV_PYTHON_DOWNLOADS="never")
+    env.update(UV_PYTHON=sys.executable, UV_PROJECT_ENVIRONMENT=str(directory / ".venv"))
     temporary = directory / "test-results/tmp"
     temporary.mkdir(parents=True, exist_ok=True)
     env.update(TEMP=str(temporary), TMP=str(temporary), TMPDIR=str(temporary))
@@ -57,8 +58,6 @@ def main() -> int:
         with TemporaryDirectory(prefix="isolated-", dir=output) as temporary:
             directory = Path(temporary)
             copy_project(directory)
-            # Lock verification does not install or alter any developer environment.
-            lock_check = ["uv", "lock", "--check", "--offline", "--python", sys.executable]
             cases = (
                 (
                     "tests",
@@ -84,7 +83,8 @@ def main() -> int:
                 ("lock", directory / "pyproject.toml", None, "needs to be updated", 1),
             )
             for name, path, mutation, signature, expected_code in cases:
-                args = lock_check if name == "lock" else command(name)
+                stage = "sync" if name == "lock" else name
+                args = [sys.executable, "scripts/check_quality.py", "--stage", stage]
                 baseline = check(args, directory)
                 (output / f"{name}-clean.txt").write_text(
                     baseline.stdout + baseline.stderr, encoding="utf-8"
@@ -101,15 +101,6 @@ def main() -> int:
                             ),
                             encoding="utf-8",
                         )
-                        args = [
-                            "uv",
-                            "sync",
-                            "--locked",
-                            "--extra",
-                            "dev",
-                            "--python",
-                            sys.executable,
-                        ]
                     else:
                         assert mutation is not None
                         path.write_text(mutation, encoding="utf-8")
