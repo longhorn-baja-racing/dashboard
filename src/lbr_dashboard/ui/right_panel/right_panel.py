@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import isfinite
 
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
@@ -73,6 +74,7 @@ class RightPanel(QWidget):
                 self.table.setItem(row_index, column_index, QTableWidgetItem(value))
 
     def highlight_column(self, column_index: int) -> None:
+        self._reset_plot()
         if column_index < 0:
             return
         self.table.clearSelection()
@@ -97,7 +99,9 @@ class RightPanel(QWidget):
             return
 
         if timestamp_values is not None and column_name.casefold() != "timestamp_ms":
-            timestamps = [value for value in timestamp_values if value is not None]
+            timestamps = [
+                value for value in timestamp_values if value is not None and isfinite(value)
+            ]
             start_time = min(timestamps) if timestamps else 0.0
             x_values = [
                 value - start_time if value is not None else None for value in timestamp_values
@@ -110,7 +114,10 @@ class RightPanel(QWidget):
         pairs = [
             (x_value, y_value)
             for x_value, y_value in zip(x_values, values)
-            if x_value is not None and y_value is not None
+            if x_value is not None
+            and y_value is not None
+            and isfinite(x_value)
+            and isfinite(y_value)
         ]
         self._reset_plot()
         if not pairs:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from math import isfinite
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QColor, QPalette
@@ -22,20 +23,30 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.log import LogImporter, LogSession, LogSessionStore
-from ..import_controller import ImportController, demo_session
+from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
 from .left_panel import LeftPanel
 from .right_panel import RightPanel
 from .top_menu_bar import TopMenuBar
 
 
+class CsvLoader(Protocol):
+    def load_csv(self, file_path: str) -> None: ...
+    def start_import(self, file_path: str) -> None: ...
+    def cancel_import(self) -> None: ...
+    def try_demo(self) -> None: ...
+    def close(self) -> bool: ...
+
+
 class MainWindow(QMainWindow):
     """Main application window that coordinates imported data and presentation."""
 
+    csv_requested = Signal(str)
+    csv_load_failed = Signal(str, str)
+    column_selected = Signal(int)
     import_failed = Signal(str, str)
 
-    def __init__(self, importer: LogImporter) -> None:
+    def __init__(self) -> None:
         super().__init__()
         palette = self.palette()
         for role in (QPalette.ColorRole.Window, QPalette.ColorRole.Button):
@@ -52,7 +63,7 @@ class MainWindow(QMainWindow):
             "QFrame#importCard { border: 1px solid #555; border-radius: 6px; }"
             "QPushButton { padding: 6px 12px; }"
         )
-        self._log_store = LogSessionStore(importer)
+        self._controller: CsvLoader | None = None
         self.setWindowTitle("LBR Dashboard")
         self.resize(1200, 700)
 
@@ -117,10 +128,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(card)
         layout.addWidget(splitter, 1)
         self.setCentralWidget(root)
-        self.import_controller = ImportController(self, importer)
         self.open_button.clicked.connect(self.open_csv)
         self.demo_button.clicked.connect(self.try_demo)
-        self.cancel_button.clicked.connect(self.import_controller.cancel)
+        self.cancel_button.clicked.connect(self.cancel_import)
         self.details_button.clicked.connect(self.toggle_error_details)
         self.copy_button.clicked.connect(self.copy_error)
         self.set_import_state(
@@ -133,88 +143,73 @@ class MainWindow(QMainWindow):
         self.right_panel.plot_widget.setTitle("No data loaded — open CSV or try demo data")
         self.right_panel.table.setEditTriggers(self.right_panel.table.EditTrigger.NoEditTriggers)
 
+    def attach_controller(self, controller: CsvLoader) -> None:
+        self._controller = controller
+
     def _select_column(self, column_index: int) -> None:
-        """Highlight and plot the selected column, including the first selection."""
-
-        if column_index < 0:
-            self.right_panel.plot_widget.clear()
-            return
-
         item = self.left_panel.list_widget.item(column_index)
-        if item is not None:
-            self.right_panel.highlight_column(item.data(Qt.ItemDataRole.UserRole))
-            column_name = item.text()
-            self.right_panel.plot_column(
-                column_name,
-                self._log_store.numeric_column(column_name),
-                self._log_store.numeric_column("timestamp_ms"),
-            )
-            values = self._log_store.numeric_column(column_name)
-            if values and all(value is None for value in values):
-                self.statusBar().showMessage(
-                    "This column has no numeric readings. Inspect its raw values in the table."
-                )
-            else:
-                self.statusBar().clearMessage()
+        physical_index = item.data(Qt.ItemDataRole.UserRole) if item is not None else -1
+        self.right_panel.highlight_column(physical_index)
+        if physical_index >= 0:
+            self.column_selected.emit(physical_index)
 
     def open_csv(self) -> None:
         """Open a CSV file and display its columns and rows."""
 
         file_path, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv)")
         if file_path:
-            self.import_controller.start(Path(file_path))
+            self.csv_requested.emit(file_path)
 
     def load_csv(self, file_path: Path) -> None:
-        """Ask the importer to decode a CSV, then pass its model to the panels."""
+        """Load synchronously and propagate importer errors to callers."""
+        if self._controller is None:
+            raise RuntimeError("No CSV loader is attached to this window")
+        self._controller.load_csv(str(file_path))
 
-        if not self._log_store.load(file_path):
-            return
-
-        self.right_panel.set_table(self._log_store.headers, self._log_store.rows)
-        self._set_plot_columns()
-        with QSignalBlocker(self.left_panel.list_widget):
-            self.left_panel.list_widget.setCurrentRow(0)
-        self._select_column(0)
-        self.source_label.setText("Local CSV loaded. No live sensor connection.")
-        self.set_import_state("ready", "CSV loaded. Select a numeric column to plot.")
-
-    def present_session(self, session: LogSession) -> None:
-        self._log_store.replace(session)
-        self.right_panel.set_table(session.headers, session.rows)
-        self._set_plot_columns()
+    def display_log(
+        self,
+        headers: tuple[str, ...],
+        rows: tuple[tuple[str, ...], ...],
+        columns: Sequence[tuple[int, str]],
+        *,
+        prefer_measurement: bool = False,
+    ) -> None:
+        """Present controller-selected columns without retaining the model."""
+        self.statusBar().clearMessage()
+        self.right_panel.set_table(headers, rows)
         choices = self.left_panel.list_widget
-        column = next(
-            (
-                i
-                for i in range(choices.count())
-                if choices.item(i).text().casefold() != "timestamp_ms"
-            ),
-            0 if choices.count() else -1,
-        )
-        with QSignalBlocker(self.left_panel.list_widget):
-            self.left_panel.list_widget.setCurrentRow(column)
-        self._select_column(column)
-        self.source_label.setText("Local CSV loaded. No live sensor connection.")
-
-    def _set_plot_columns(self) -> None:
-        choices = self.left_panel.list_widget
-        columns = [
-            (index, name)
-            for index, name in enumerate(self._log_store.headers)
-            if any(
-                value is not None and isfinite(value)
-                for value in self._log_store.numeric_column(name) or ()
-            )
-        ]
         with QSignalBlocker(choices):
             self.left_panel.set_columns([name for _, name in columns])
             for row, (index, _) in enumerate(columns):
                 choices.item(row).setData(Qt.ItemDataRole.UserRole, index)
-        self.right_panel.plot_widget.clear()
+            selected = next(
+                (
+                    i
+                    for i, (_, name) in enumerate(columns)
+                    if prefer_measurement and name.casefold() != "timestamp_ms"
+                ),
+                0 if columns else -1,
+            )
+            choices.setCurrentRow(selected)
+        self._select_column(selected)
         if not columns:
             self.right_panel.plot_widget.setTitle(
                 "No numeric readings to plot — view the raw data in the table"
             )
+        self.source_label.setText("Local CSV loaded. No live sensor connection.")
+
+    def plot_column(
+        self, column_name: str, values: NumericColumn | None, timestamp_values: NumericColumn | None
+    ) -> None:
+        self.right_panel.plot_column(column_name, values, timestamp_values)
+
+    def show_load_error(self, file_path: str, message: str) -> None:
+        self.statusBar().showMessage(f"Could not load {file_path}: {message}")
+        self.csv_load_failed.emit(file_path, message)
+
+    def cancel_import(self) -> None:
+        if self._controller is not None:
+            self._controller.cancel_import()
 
     def set_import_state(self, state: str, message: str) -> None:
         self.import_state = state
@@ -252,20 +247,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Error details copied locally.")
 
     def try_demo(self) -> None:
-        if self.import_controller.worker is not None:
-            return
-        session = demo_session()
-        self.present_session(session)
-        self.source_label.setText("Fictional static demo CSV. No sensor is connected.")
-        self.set_import_state(
-            "ready",
-            "Demo loaded: select temperature or pressure. "
-            "Empty cells mean missing readings; 0 is a real value. "
-            "This is a static preview, not a live sensor.",
-        )
+        if self._controller is not None:
+            self._controller.try_demo()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if not self.import_controller.close():
+        if self._controller is not None and not self._controller.close():
             self.import_message.setText(
                 "Waiting for the file reader to stop. Try closing again shortly."
             )

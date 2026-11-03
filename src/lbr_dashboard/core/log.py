@@ -19,6 +19,7 @@ class LogSession:
     headers: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
     numeric_columns: Mapping[str, NumericColumn]
+    columns_by_index: tuple[NumericColumn, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "headers", tuple(self.headers))
@@ -30,10 +31,16 @@ class LogSession:
                 {name: tuple(values) for name, values in self.numeric_columns.items()}
             ),
         )
+        indexed = self.columns_by_index or tuple(
+            self.numeric_columns.get(header, ()) for header in self.headers
+        )
+        object.__setattr__(self, "columns_by_index", tuple(tuple(values) for values in indexed))
 
-    def numeric_column(self, name: str) -> NumericColumn | None:
-        """Return the parsed values for one column, when that column exists."""
+    def numeric_column(self, name: str | int) -> NumericColumn | None:
+        """Look up a physical column by index, or the first column with a name."""
 
+        if isinstance(name, int):
+            return self.columns_by_index[name] if 0 <= name < len(self.columns_by_index) else None
         return self.numeric_columns.get(name)
 
     @classmethod
@@ -47,11 +54,14 @@ class LogSession:
             except (TypeError, ValueError):
                 return None
 
-        columns = {
-            header: tuple(as_float(row[index]) if index < len(row) else None for row in rows)
-            for index, header in enumerate(headers)
-        }
-        return cls(headers, rows, columns)
+        indexed = tuple(
+            tuple(as_float(row[index]) if index < len(row) else None for row in rows)
+            for index in range(len(headers))
+        )
+        columns: dict[str, NumericColumn] = {}
+        for header, values in zip(headers, indexed):
+            columns.setdefault(header, values)
+        return cls(headers, rows, columns, indexed)
 
 
 class LogImporter(Protocol):
@@ -74,13 +84,11 @@ class LogSessionStore:
         self._session: LogSession | None = None
 
     def load(self, path: Path) -> bool:
-        """Replace the current session only when the import contains a header row."""
+        """Replace successfully imported data, including an empty session."""
 
         session = self._importer.import_session(path)
-        if not session.headers:
-            return False
         self._session = session
-        return True
+        return bool(session.headers)
 
     def replace(self, session: LogSession) -> None:
         """Commit an already decoded session on the owning application thread."""
@@ -94,7 +102,7 @@ class LogSessionStore:
     def rows(self) -> tuple[tuple[str, ...], ...]:
         return self._session.rows if self._session is not None else ()
 
-    def numeric_column(self, name: str) -> NumericColumn | None:
+    def numeric_column(self, name: str | int) -> NumericColumn | None:
         """Return one numeric column from the current session."""
 
         if self._session is None:

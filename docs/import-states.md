@@ -13,7 +13,9 @@ do not offer an empty graph. Original physical column indexes are retained for
 table highlighting even when filtered columns occur in the middle. A text-only
 file has an explicit no-numeric-readings plot message.
 
-File-menu and Open CSV imports use the existing CSV parser on one owned worker
+The application controller owns the model and import controller; widgets expose
+requests and presentation methods. File-menu and Open CSV imports use the existing
+CSV parser on one owned worker
 thread. An indeterminate activity bar, row count and Cancel import action remain
 responsive while reading. The previous graph/table remains available. A second
 import cannot start until the first worker finishes. Cancel suppresses a completed
@@ -28,11 +30,10 @@ cooperative between parser iterations, not a promise to interrupt a kernel read.
 The worker never accesses Qt widgets. The owner polls one bounded result slot;
 diagnostic counters do not accumulate unbounded progress events.
 
-The legacy table preview has explicit limits: 16 MiB file size at open, 50,000
-data rows, 128 columns, and 50,000 cells including the header. Oversized input is
-rejected with a smaller-file recovery action rather than building millions of
-QTableWidget cells. CSV's normal field-length limit also remains in effect.
-These are preview bounds, not performance claims for the planned session store.
+The table renders at most 1,000 rows, 256 columns and 50,000 cells, with a
+visible showing N of M summary. Parsing and numeric columns retain the full log
+for plotting. CSV's normal field-length limit remains in effect. Imports are
+memory-backed; these table bounds do not promise unlimited file sizes.
 
 ## Failure and recovery
 
@@ -73,8 +74,8 @@ remote reporting is introduced.
 
 Windows, Python 3.12.14, PySide6/Qt 6.11.2:
 
-- **54 tests passed**, **96.50%** branch-aware coverage after selector filtering.
-- **22 native Windows UI tests passed**, including real clipboard copy.
+- **293 tests passed**, **95.35%** branch-aware coverage after integration with main.
+- **89 native Windows UI tests passed**, including real clipboard copy.
 - Native application smoke clicked production Open CSV, demo, details and copy
   buttons; verified actual demo series, visible loading, preserved data after a
   malformed import, recovery and shutdown. Screenshots were visually inspected.

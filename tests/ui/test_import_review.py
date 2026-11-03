@@ -1,10 +1,12 @@
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 
 from lbr_dashboard.app import create_main_window
 from lbr_dashboard.core.log import LogSession
+from lbr_dashboard.dashboard_controller import DashboardController
 from lbr_dashboard.ui.main_window import MainWindow
 
 
@@ -14,12 +16,12 @@ def window(qtbot):
     qtbot.addWidget(widget)
     widget.show()
     yield widget
-    assert widget.import_controller.close()
+    assert controller(widget).import_controller.close()
     widget.close()
 
 
 def load(window, path, qtbot):
-    window.import_controller.start(path)
+    controller(window).import_controller.start(path)
     qtbot.waitUntil(lambda: window.import_state != "loading")
 
 
@@ -44,7 +46,7 @@ def test_blank_lines_and_short_final_record_are_recoverable(window, qtbot, tmp_p
     path.write_text("timestamp_ms,value,note\n0,1,start\n10,2,end\n" + tail)
     load(window, path, qtbot)
     assert window.import_state == "ready", window.import_message.text()
-    assert window._log_store.numeric_column("value") == (1, 2)
+    assert controller(window)._log_store.numeric_column("value") == (1, 2)
     if tail.startswith("20"):
         assert "final row" in window.import_message.text()
 
@@ -54,7 +56,7 @@ def test_nonfinite_values_warn_but_text_and_zero_survive(window, qtbot, tmp_path
     path.write_text("Timestamp_ms,value,note\n0,0,inf\n10,nan,ready\n20,3,done\n")
     load(window, path, qtbot)
     assert window.import_state == "ready", window.import_message.text()
-    assert window._log_store.numeric_column("value") == (0, None, 3)
+    assert controller(window)._log_store.numeric_column("value") == (0, None, 3)
     assert window.right_panel.table.item(0, 2).text() == "inf"
     assert "non-finite" in window.import_message.text()
     assert "sample index" not in window.import_message.text()
@@ -72,7 +74,8 @@ def test_each_load_plots_only_once_and_injected_importer_is_used(qtbot, tmp_path
             return LogSession.from_rows(("timestamp_ms", "custom"), (("0", "7"),))
 
     importer = Importer()
-    window = MainWindow(importer)
+    window = MainWindow()
+    window.attach_controller(DashboardController(window, importer))
     qtbot.addWidget(window)
     spy = Mock(wraps=window.right_panel.plot_column)
     window.right_panel.plot_column = spy
@@ -83,7 +86,7 @@ def test_each_load_plots_only_once_and_injected_importer_is_used(qtbot, tmp_path
     assert spy.call_count == 1
     load(window, tmp_path / "ignored.csv", qtbot)
     assert importer.calls == 2
-    assert window._log_store.numeric_column("custom") == (7,)
+    assert controller(window)._log_store.numeric_column("custom") == (7,)
     window.close()
 
 
@@ -104,3 +107,7 @@ def test_copied_details_include_file_and_underlying_parser_error(
     window.copy_button.click()
     details = QApplication.clipboard().text()
     assert str(path) in details and diagnostic in details
+
+
+def controller(window) -> DashboardController:
+    return cast(DashboardController, window._controller)

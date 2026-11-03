@@ -31,7 +31,8 @@ window.show()
 assert window.import_state == "empty"
 window.demo_button.click()
 assert window.right_panel.table.rowCount() == 4
-window.import_controller.start(Path(sys.argv[1]))
+assert window._controller is not None
+window._controller.start_import(sys.argv[1])
 loop = QEventLoop()
 poll = QTimer()
 poll.timeout.connect(lambda: loop.quit() if window.import_state != "loading" else None)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -117,14 +118,18 @@ def classify(error: Exception) -> ImportFailure:
 
 
 class ImportController(QObject):
-    def __init__(self, window: MainWindow, importer: LogImporter) -> None:
+    def __init__(
+        self, window: MainWindow, importer: LogImporter, present: Callable[[LogSession], None]
+    ) -> None:
         super().__init__(window)
         self.window = window
         self.importer = importer
+        self.present = present
         self.worker: Thread | None = None
         self.cancelled = Event()
         self.result: Queue[tuple[LogSession | None, str | ImportFailure]] = Queue(maxsize=1)
         self.rows_read = 0
+        self.path: Path | None = None
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.poll)
@@ -133,8 +138,9 @@ class ImportController(QObject):
         if self.worker is not None:
             return
         self.cancelled.clear()
+        self.path = path
         self.rows_read = 0
-        self.window.set_import_state("loading", "Reading CSV… Previous data remains available.")
+        self.window.set_import_state("loading", "Reading CSVâ€¦ Previous data remains available.")
 
         def progress(count: int) -> None:
             self.rows_read = count
@@ -173,14 +179,14 @@ class ImportController(QObject):
 
     def cancel(self) -> None:
         self.cancelled.set()
-        self.window.import_message.setText("Cancelling import… Previous data remains available.")
+        self.window.import_message.setText("Cancelling importâ€¦ Previous data remains available.")
 
     def poll(self) -> None:
         if self.worker is None:
             return
         if self.worker.is_alive():
             if not self.cancelled.is_set():
-                self.window.import_message.setText(f"Reading CSV… {self.rows_read:,} rows read.")
+                self.window.import_message.setText(f"Reading CSVâ€¦ {self.rows_read:,} rows read.")
             return
         self.worker.join()
         self.worker = None
@@ -198,9 +204,10 @@ class ImportController(QObject):
                 "Import cancelled. Previous data is unchanged; open another CSV or try demo data.",
             )
         elif isinstance(detail, ImportFailure):
+            self.window.show_load_error(str(self.path), detail.reason)
             self.window.show_import_error(detail.reason, detail.recovery, detail.details)
         elif session is not None:
-            self.window.present_session(session)
+            self.present(session)
             self.window.set_import_state(
                 "ready",
                 "CSV loaded. Select a numeric column to plot." + (" " + detail if detail else ""),
