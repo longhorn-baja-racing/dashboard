@@ -224,7 +224,7 @@ def test_real_source_failures_are_retained_with_full_queue(when) -> None:
 
         return generate()
 
-    source = make_source(broken, capacity=1, publish_timeout=0)
+    source = make_source(broken, is_live=True, capacity=1, publish_timeout=0)
     run(source)
     health = source.health()
     assert health.state is SourceState.FAILED
@@ -289,7 +289,7 @@ def test_fatal_adapter_error_retains_original_code() -> None:
 
 def test_no_consumer_cannot_hide_descriptors_errors_or_terminal_state() -> None:
     source = make_source(
-        lambda token: (record(i) for i in range(1000)), capacity=1, publish_timeout=0
+        lambda token: (record(i) for i in range(1000)), is_live=True, capacity=1, publish_timeout=0
     )
     run(source)
     assert source.health().dropped_records == 1000
@@ -297,6 +297,63 @@ def test_no_consumer_cannot_hide_descriptors_errors_or_terminal_state() -> None:
     assert source.health().terminal_reason == "complete"
     assert source.health().rejected_controls == 1
     assert source.close()
+
+
+def test_finite_replay_waits_for_consumer_without_losing_samples():
+    source = make_source(lambda token: (record(i, value=i) for i in range(4)), capacity=3)
+    source.open()
+    source.start()
+    try:
+        assert not source.join(0.15)
+        delivered = list(source.events.drain())
+        for _ in range(100):
+            if source.join(0.01):
+                break
+            delivered.extend(source.events.drain())
+        assert source.join(0)
+        delivered.extend(source.events.drain())
+        assert [event.sample.value for event in delivered if event.sample is not None] == list(
+            range(4)
+        )
+        assert delivered[-1].reason == "complete"
+        assert source.health().dropped_records == 0
+    finally:
+        assert source.close()
+
+
+def test_finite_close_wakes_blocked_terminal_publication():
+    source = make_source(capacity=2)
+    source.open()
+    source.start()
+    assert not source.join(0.15)
+    assert source.close(1)
+    assert source.health().terminal_reason == "cancelled"
+    assert [event.kind for event in source.events.drain()] == [
+        SourceEventKind.DESCRIPTOR,
+        SourceEventKind.RECORD,
+    ]
+
+
+def test_control_waits_for_available_room_before_eviction():
+    queue = SourceEventQueue(1)
+    assert queue.publish(record())
+    published = Event()
+
+    def publish_end():
+        if queue.publish(end(), timeout=1):
+            published.set()
+
+    worker = Thread(target=publish_end)
+    worker.start()
+    try:
+        assert not published.wait(0.05)
+        assert queue.drain() == (record(),)
+        assert published.wait(1)
+        assert queue.drain() == (end(),)
+        assert queue.stats.dropped_records == 0
+    finally:
+        queue.close()
+        worker.join(1)
 
 
 def test_lifecycle_misuse_unsupported_operations_and_reopen_without_drain() -> None:

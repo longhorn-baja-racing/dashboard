@@ -10,6 +10,8 @@ from time import monotonic
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
+from .signals import SignalAvailability, SignalDescriptor, SignalSample, SignalSchema, SignalSeries
+
 
 class CancellationRequested(Exception):
     """Raised by cooperative work after its owner requests cancellation."""
@@ -48,6 +50,17 @@ class CancellationToken:
 
 
 def _freeze(value: object) -> Any:
+    if type(value) in (
+        SignalAvailability,
+        SignalDescriptor,
+        SignalSample,
+        SignalSchema,
+        SignalSeries,
+        ServiceFailure,
+    ):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return value
     if isinstance(value, Mapping):
@@ -83,6 +96,10 @@ class ServiceFailure:
 
     exception_type: str
     message: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.exception_type, str) or not isinstance(self.message, str):
+            raise TypeError("Service failure details must be strings")
 
 
 Work: TypeAlias = Callable[[CancellationToken, Callable[[ServiceEvent], None]], None]
@@ -147,9 +164,8 @@ class BackgroundService:
     def _run(self) -> None:
         try:
             self._work(self._cancel, self._emit)
-        except CancellationRequested:
-            pass
-        except Exception as exc:
-            self._failure = ServiceFailure(type(exc).__name__, str(exc))
+        except BaseException as exc:
+            if not (isinstance(exc, CancellationRequested) and self._cancel.is_cancelled):
+                self._failure = ServiceFailure(type(exc).__name__, str(exc))
         finally:
             self._finished.set()
