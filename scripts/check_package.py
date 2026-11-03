@@ -20,7 +20,7 @@ from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
 from lbr_dashboard.core import (SignalDescriptor, SignalSample, SignalSchema, SignalSeries,
                                 IteratorSource, SourceEvent, SourceEventKind, TelemetrySession,
-                                SessionClock, PlaybackMode)
+                                SessionClock, PlaybackMode, SimulatorSource, example_signals)
 
 descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
                               timestamp_domain="device_monotonic")
@@ -54,6 +54,14 @@ assert clock.snapshot().selected_ns == 10
 assert clock.pause().mode is PlaybackMode.PAUSED
 off_a()
 off_b()
+simulator = SimulatorSource(example_signals("motion"), seed=7, duration_ns=0)
+simulator.open()
+simulator.start()
+assert simulator.join(5)
+sim_records = [event for event in simulator.events.drain()
+               if event.kind is SourceEventKind.RECORD]
+assert len(sim_records) == 4
+assert simulator.health().terminal_reason == "complete" and simulator.close()
 
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
