@@ -529,7 +529,8 @@ RULE_START = '{"rule_id": "r", "signal_id": "s", "comparison": "above"'
     [
         ("[]", None, None, "top level"),
         ("{", None, None, "not valid JSON"),
-        ("[" * 100_000, None, None, "not valid JSON"),
+        # A short id: pytest puts test ids in an environment variable, which Windows caps.
+        pytest.param("[" * 100_000, None, None, "not valid JSON", id="deeply-nested"),
         (_document(format="other"), None, "format", "expected"),
         ('{"version": 1, "rules": []}', None, "format", "missing"),
         ('{"format": "lbr-dashboard-thresholds", "rules": []}', None, "version", "missing"),
@@ -560,7 +561,9 @@ RULE_START = '{"rule_id": "r", "signal_id": "s", "comparison": "above"'
         (_document(_rule()).replace("1.0", "NaN"), None, None, "NaN is not allowed"),
         (_document(_rule()).replace("1.0", "-Infinity"), None, None, "not allowed"),
         (_document(_rule()).replace("1.0", "1e400"), 0, "level", "finite"),
-        (_document(_rule()).replace("1.0", "1" + "0" * 400), 0, "level", "finite"),
+        pytest.param(
+            _document(_rule()).replace("1.0", "1" + "0" * 400), 0, "level", "finite", id="huge-int"
+        ),
         (
             HEADER + ', "rules": [' + RULE_START + ', "level": 1, "level": 2}]}',
             0,
