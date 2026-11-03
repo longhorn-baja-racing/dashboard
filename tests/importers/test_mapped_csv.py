@@ -241,7 +241,8 @@ def test_mixed_rate_fixture_reports_every_problem() -> None:
     flag = session.signal("flag")
     assert list(flag.values) == [0, 0, 1, 1, 1, 0, 0, 1] and flag.missing == 1
     note = session.signal("note")
-    assert note.values == (
+    # A Windows checkout may turn the quoted line break into CRLF; it is kept as read.
+    assert tuple(text.replace("\r\n", "\n") for text in note.values) == (
         "start",
         "comma, inside",
         "late row",
@@ -360,8 +361,12 @@ def test_unreadable_files(tmp_path: Path) -> None:
     with pytest.raises(CsvMappingError, match="not a known text encoding"):
         MappedCsvImporter().import_session(empty, replace(mapping, encoding="klingon"))
     nul = write(tmp_path, "time_ms,v\n0,\x001\n", "nul.csv")
-    session = MappedCsvImporter().import_session(nul, mapping)
-    assert session.signal("v").invalid == 1
+    try:
+        session = MappedCsvImporter().import_session(nul, mapping)
+    except CsvMappingError as error:  # Python 3.10's csv module rejects NUL bytes.
+        assert str(error) == "nul.csv line 2: line contains NUL"
+    else:  # Later versions read the cell, which is then not a number.
+        assert session.signal("v").invalid == 1
 
 
 def test_csv_errors_name_the_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
