@@ -7,12 +7,15 @@ It adds no runtime layers for providers that do not exist yet.
 
 | Layer | Responsibility | May depend on |
 | --- | --- | --- |
-| `core` | Framework-neutral data contracts, registries, and worker lifecycle | Python standard library |
+| `core` | Framework-neutral data contracts, registries, and worker lifecycle | Python standard library, and numpy for numeric sample arrays |
 | `importers` | File decoding into normalized models | `core` |
 | `ui` | Qt widgets and presentation | `core`, Qt, and PyQtGraph |
 | `app` | Composition, application-owned model state, and process lifecycle | `core`, `importers`, and `ui` |
 
 The dependency direction is enforced by `tests/architecture/test_boundaries.py`.
+numpy is a declared runtime dependency and has no UI or framework coupling. Core
+uses it only to hold large sample arrays compactly (for example
+`core/lbr_session.py`); contracts and lifecycle code stay standard library only.
 Core and importers never import the UI or the composition root. UI widgets do
 not import concrete importer implementations.
 The check resolves relative and package-root imports, every imported alias, and
