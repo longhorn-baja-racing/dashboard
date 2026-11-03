@@ -41,13 +41,13 @@ run, not repeating windows; restarting the source restarts indices and seed.
 
 | Window | Records and observability |
 | --- | --- |
-| `loss` | Scheduled measurements are omitted. A recoverable `simulated_loss` error marks the window's start with signal/time context. Injected lost count increases and remains in persistent source health. |
+| `loss` | Scheduled measurements are omitted. A `HEALTH` marker carrying recoverable `simulated_loss` context marks the window's start with signal/time context. Injected lost count increases and remains in persistent source health. |
 | `unavailable` | Each scheduled record is present with `available=False`, `value=None`, quality `simulated_unavailable`. It is never represented as zero or skipped as if lost. |
-| `stale` | No new record is fabricated. A recoverable `simulated_stale` error marks the start; the persistent stale counter increases. Consumers choose an explicit age/gap display policy rather than extrapolating old values. |
+| `stale` | No new record is fabricated. A `HEALTH` marker carrying recoverable `simulated_stale` context marks the start; the persistent stale counter increases. Consumers choose an explicit age/gap display policy rather than extrapolating old values. |
 
 Ordinary records use quality `simulated`. Heartbeats continue on their independent
 configured schedule, including while all signals are lost/stale. They report
-running state and injected lost count; they do not fabricate measurements. The
+running state and both injected and queue loss; they do not fabricate measurements. The
 existing source contract keeps the most recent error, while bounded queue/history
 may discard older errors; persistent `simulator_stats` retains aggregate fault
 counts. `source.health().dropped_records` includes injected loss plus actual queue
@@ -65,7 +65,7 @@ The ordinary cooperative stop/cancellation path reports `cancelled`, not failure
 `duration_ns` is an inclusive elapsed bound; zero emits the initial measurements.
 The default is a one-second finite accelerated run with no clock reads or waits.
 It naturally reports `complete`. `duration_ns=None` advertises live capability;
-the owner must cancel/close it (or configure disconnect).
+it requires `realtime=True`, and the owner must cancel/close it (or configure disconnect).
 
 `realtime=True` paces production using injected/default monotonic nanoseconds and
 cooperative waits of at most one second per step. Recorded measurement times are
@@ -79,7 +79,7 @@ speed/selected time from #22 never controls generation.
 The source owns the same worker and bounded queue as `IteratorSource`. Drain it
 on the application owner thread with `TelemetrySession.ingest_source`, then query
 and present snapshots. Live sessions require their own retention count cap.
-Accelerated mode can outrun a small source queue; queue loss remains observable.
+Finite accelerated runs wait for the consumer when the queue fills. Live runs use bounded waits; queue loss remains observable. Fault health markers never evict buffered records.
 Signal scheduling uses one next item per signal, not a preallocated whole run.
 Close must return true before claiming the worker has released its resources.
 
@@ -119,3 +119,4 @@ assert missing is not None and not missing.sample.available
 assert source.simulator_stats.lost == 5
 assert source.close()
 ```
+

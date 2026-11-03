@@ -208,7 +208,12 @@ class IteratorSource:
                 self._error = event.error
             if not event.error.recoverable:
                 raise _ReportedFailure(event.error)
-        elif event.kind is not SourceEventKind.HEALTH:
+        elif event.kind is SourceEventKind.HEALTH:
+            assert event.health is not None
+            if event.health.last_error is not None:
+                with self._lock:
+                    self._error = event.health.last_error
+        else:
             raise ValueError("iterator may yield only record, health or error events")
 
     def _publish(self, event: SourceEvent) -> bool:
