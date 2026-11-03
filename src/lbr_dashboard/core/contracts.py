@@ -17,6 +17,7 @@ from .signals import (
     SignalSample,
     SignalSchema,
     _freeze_mapping,
+    _require_text,
     _validate_identifier,
 )
 
@@ -139,7 +140,7 @@ class SourceEvent:
     def __post_init__(self) -> None:
         if not isinstance(self.kind, SourceEventKind):
             raise TypeError("kind must be a SourceEventKind")
-        _validate_identifier(self.source_id, "event source_id")
+        _require_text(self.source_id, "event source_id")
         payloads = (self.descriptor, self.sample, self.health, self.error, self.reason)
         expected = {
             SourceEventKind.DESCRIPTOR: self.descriptor,
@@ -233,13 +234,15 @@ class SourceEventQueue:
         self,
         event: SourceEvent,
         *,
-        timeout: float = 0.0,
+        timeout: float | None = 0.0,
         cancellation: CancellationToken | None = None,
     ) -> bool:
-        """Return False if delivery fails; never hide loss or wait indefinitely."""
+        """Wait for room. A None timeout waits until delivery, cancellation or close."""
         if not isinstance(event, SourceEvent):
             raise TypeError("event must be SourceEvent")
-        deadline = monotonic() + finite_timeout(timeout)
+        if timeout is None and cancellation is None:
+            raise ValueError("A publication without a timeout requires cancellation")
+        deadline = None if timeout is None else monotonic() + finite_timeout(timeout)
         with self._condition:
             while True:
                 if self._closed or (cancellation is not None and cancellation.is_cancelled):
@@ -247,6 +250,10 @@ class SourceEventQueue:
                     return False
                 if len(self._queue) < self._capacity:
                     break
+                remaining = None if deadline is None else deadline - monotonic()
+                if remaining is None or remaining > 0:
+                    self._condition.wait(0.02 if remaining is None else min(remaining, 0.02))
+                    continue
                 if event.kind in _CONTROL:
                     for index, buffered in enumerate(self._queue):
                         if buffered.kind not in _CONTROL:
@@ -257,11 +264,8 @@ class SourceEventQueue:
                         buffered = None
                     if buffered is not None:
                         break
-                remaining = deadline - monotonic()
-                if remaining <= 0:
-                    self._reject(event)
-                    return False
-                self._condition.wait(min(remaining, 0.02))
+                self._reject(event)
+                return False
             self._queue.append(event)
             self._published += 1
             self._condition.notify_all()
