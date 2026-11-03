@@ -18,7 +18,8 @@ import lbr_dashboard
 from lbr_dashboard.app import create_application, create_main_window, main
 from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
-from lbr_dashboard.core import SignalDescriptor, SignalSample, SignalSchema, SignalSeries
+from lbr_dashboard.core import (SignalDescriptor, SignalSample, SignalSchema, SignalSeries,
+                                IteratorSource, SourceEvent, SourceEventKind)
 
 descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
                               timestamp_domain="device_monotonic")
@@ -27,6 +28,16 @@ assert SignalSchema.from_json(schema.to_json()).to_dict() == schema.to_dict()
 series = SignalSeries.from_samples(descriptor.identifier,
     (SignalSample(10, 1, timestamp_domain="device_monotonic"),), descriptor=descriptor)
 assert SignalSeries.from_dict(series.to_dict(), descriptor=descriptor) == series
+source = IteratorSource("adapter", schema, lambda token: iter((SourceEvent(
+    SourceEventKind.RECORD, "adapter", signal_id=descriptor.identifier,
+    sample=series.samples[0]),)))
+source.open()
+source.start()
+assert source.join(5)
+assert [event.kind for event in source.events.drain()] == [SourceEventKind.DESCRIPTOR,
+    SourceEventKind.RECORD, SourceEventKind.END_OF_STREAM]
+assert source.health().terminal_reason == "complete" and source.close()
+
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
 metadata = distribution("lbr-dashboard")
