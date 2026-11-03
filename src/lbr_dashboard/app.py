@@ -9,6 +9,9 @@ from collections.abc import Sequence
 
 from PySide6.QtWidgets import QApplication
 
+from .core.log import LogImporter
+from .core.registry import Registry
+from .dashboard_controller import DashboardController
 from .diagnostics import configure_logging, install_exception_hooks
 from .importers.csv_importer import CsvImporter
 from .ui.diagnostics import ErrorNotifier, attach_diagnostics, install_qt_message_handler
@@ -30,7 +33,11 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 def create_main_window() -> MainWindow:
     """Compose the application shell without showing it."""
 
-    return MainWindow(importer=CsvImporter())
+    importers: Registry[LogImporter] = Registry("importers")
+    importers.register("csv", CsvImporter)
+    window = MainWindow()
+    window.attach_controller(DashboardController(window, importers.create("csv")))
+    return window
 
 
 def main(argv: Sequence[str] | None = None) -> int:
