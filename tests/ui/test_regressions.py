@@ -132,7 +132,7 @@ def test_real_entrypoint_runs_event_loop_and_returns_exit_code(
 ) -> None:
     window = app.create_main_window()
     qtbot.addWidget(window)
-    monkeypatch.setattr(app, "create_main_window", lambda: window)
+    monkeypatch.setattr(app, "create_main_window", lambda **kwargs: window)
     monkeypatch.setattr(app.signal, "signal", lambda *args: None)
     QTimer.singleShot(0, lambda: qapp.exit(7))
     assert app.main([]) == 7
