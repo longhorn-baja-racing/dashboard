@@ -67,11 +67,12 @@ but must advertise and implement its actual behavior.
 `SourceEventQueue` bounds the number of queued events. Payload byte-size limits
 belong to each explicit adapter. Publication returns true on delivery and false
 on timeout, cancellation or close. A default zero timeout is nonblocking; the
-concrete source uses a configurable finite timeout (default 50 ms) per event.
-Records/health may be dropped when consumers lag. Controls may evict an older
-record/health event, but cannot evict another control. A queue full of controls
-honors its timeout too. `close()` wakes waiting publishers and retains existing
-events for draining.
+live source uses a configurable timeout (default 50 ms) per event. When that
+deadline expires, controls can evict an older record or health event. Controls
+never evict another control. Finite replay instead waits for space until delivery,
+cancellation or close. Consumers must keep draining while the producer runs,
+including while it publishes terminal events. `close()` wakes waiting publishers
+and retains existing events for draining.
 
 A finite queue cannot promise unlimited lossless control events with no consumer.
 Instead, rejected controls are counted; descriptors remain in `source.schema`,

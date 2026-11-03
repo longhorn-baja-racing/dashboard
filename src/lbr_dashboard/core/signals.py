@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from math import isfinite
+from numbers import Integral
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
@@ -126,7 +127,7 @@ def _freeze_mapping(value: Mapping[str, Any], field_name: str) -> Mapping[str, J
     return frozen
 
 
-def _mapping_to_dict(value: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+def _mapping_to_dict(value: Mapping[str, JsonValue]) -> dict[str, Any]:
     return {key: _thaw_json(item) for key, item in sorted(value.items())}
 
 
@@ -160,6 +161,8 @@ def _validate_vector(value: object, shape: tuple[int, ...]) -> None:
 class SignalAvailability:
     """Explicit availability metadata; missing data is never represented as zero."""
 
+    __hash__ = None  # pyright: ignore[reportAssignmentType]
+
     available: bool = True
     reason: str | None = None
     extra: Mapping[str, JsonValue] = field(default_factory=dict)
@@ -175,7 +178,7 @@ class SignalAvailability:
         object.__setattr__(self, "extra", _freeze_mapping(self.extra, "availability.extra"))
         _check_extra(self.extra, {"available", "reason"})
 
-    def to_dict(self) -> dict[str, JsonValue]:
+    def to_dict(self) -> dict[str, Any]:
         return {**_mapping_to_dict(self.extra), "available": self.available, "reason": self.reason}
 
     @classmethod
@@ -196,6 +199,8 @@ class SignalAvailability:
 @dataclass(frozen=True, slots=True)
 class SignalDescriptor:
     """Immutable metadata describing one signal independently of its samples."""
+
+    __hash__ = None  # pyright: ignore[reportAssignmentType]
 
     identifier: str
     display_name: str
@@ -218,7 +223,7 @@ class SignalDescriptor:
         object.__setattr__(self, "display_name", _require_text(self.display_name, "display_name"))
         object.__setattr__(self, "path", _validate_path(self.path))
         object.__setattr__(self, "data_type", _validate_identifier(self.data_type, "type"))
-        object.__setattr__(self, "source_id", _validate_identifier(self.source_id, "source_id"))
+        _require_text(self.source_id, "source_id")
         object.__setattr__(self, "shape", _validate_shape(self.shape))
         _require_text(self.timestamp_domain, "timestamp_domain")
         if self.data_type == "vector" and not self.shape:
@@ -232,7 +237,7 @@ class SignalDescriptor:
                 raise SignalSchemaError("canonical_unit must not contain whitespace")
             object.__setattr__(self, "canonical_unit", unit)
         if self.device_id is not None:
-            object.__setattr__(self, "device_id", _validate_identifier(self.device_id, "device_id"))
+            _require_text(self.device_id, "device_id")
         if self.nominal_rate_hz is not None:
             if not isinstance(self.nominal_rate_hz, (int, float)) or isinstance(
                 self.nominal_rate_hz, bool
@@ -311,7 +316,7 @@ class SignalDescriptor:
 
         return self.extra
 
-    def to_dict(self) -> dict[str, JsonValue]:
+    def to_dict(self) -> dict[str, Any]:
         result = _mapping_to_dict(self.extra)
         result.update(
             {
@@ -323,8 +328,8 @@ class SignalDescriptor:
                 "display_name": self.display_name,
                 "id": self.identifier,
                 "nominal_rate_hz": self.nominal_rate_hz,
-                "path": self.path,
-                "shape": self.shape,
+                "path": list(self.path),
+                "shape": list(self.shape),
                 "source_id": self.source_id,
                 "type": self.data_type,
                 "timestamp_domain": self.timestamp_domain,
@@ -390,6 +395,8 @@ class SignalDescriptor:
 class SignalSample:
     """One sparse sample; each signal keeps its own timeline."""
 
+    __hash__ = None  # pyright: ignore[reportAssignmentType]
+
     timestamp_ns: int
     value: Any
     available: bool = True
@@ -400,8 +407,9 @@ class SignalSample:
     extra: Mapping[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if isinstance(self.timestamp_ns, bool) or not isinstance(self.timestamp_ns, int):
+        if isinstance(self.timestamp_ns, bool) or not isinstance(self.timestamp_ns, Integral):
             raise SignalSchemaError("sample timestamp_ns must be an integer")
+        object.__setattr__(self, "timestamp_ns", int(self.timestamp_ns))
         if not isinstance(self.available, bool):
             raise SignalSchemaError("sample available must be a boolean")
         if self.available and self.value is None:
@@ -412,7 +420,7 @@ class SignalSample:
             object.__setattr__(self, "quality", _require_text(self.quality, "sample quality"))
         _require_text(self.timestamp_domain, "timestamp_domain")
         if self.source_id is not None:
-            _validate_identifier(self.source_id, "sample source_id")
+            _require_text(self.source_id, "sample source_id")
         if self.unit is not None:
             _require_text(self.unit, "sample unit")
             if any(character.isspace() for character in self.unit):
@@ -466,6 +474,7 @@ class SignalSample:
 
 @dataclass(frozen=True, slots=True)
 class SignalSeries:
+    __hash__ = None  # pyright: ignore[reportAssignmentType]
     """Sparse storage for one signal without synthetic row alignment."""
 
     signal_id: str
@@ -537,6 +546,8 @@ class SignalSeries:
 class SignalSchema:
     """Versioned collection of descriptors with forward-compatible fields."""
 
+    __hash__ = None  # pyright: ignore[reportAssignmentType]
+
     schema_version: SchemaVersion
     signals: tuple[SignalDescriptor, ...]
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
@@ -565,13 +576,13 @@ class SignalSchema:
         object.__setattr__(self, "extra", _freeze_mapping(self.extra, "extra"))
         _check_extra(self.extra, {"metadata", "schema_version", "signals"})
 
-    def to_dict(self) -> dict[str, JsonValue]:
+    def to_dict(self) -> dict[str, Any]:
         result = _mapping_to_dict(self.extra)
         result.update(
             {
                 "metadata": _mapping_to_dict(self.metadata),
                 "schema_version": self.schema_version,
-                "signals": tuple(signal.to_dict() for signal in self.signals),
+                "signals": [signal.to_dict() for signal in self.signals],
             }
         )
         return result
