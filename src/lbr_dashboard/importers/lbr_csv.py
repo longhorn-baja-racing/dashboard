@@ -31,6 +31,7 @@ from ..core.lbr_session import (
     LbrSession,
     MalformedRow,
     SessionEvent,
+    reset_reason_name,
 )
 
 CSV_COLUMNS = ("t_s", "kind", "node", "name", "value", "unit", "status", "synced", "seq")
@@ -38,17 +39,6 @@ SUPPORTED_VERSION = 1
 TESTED_PROTOCOL_VERSION = 4
 TESTED_LOG_FORMAT_VERSION = 1
 
-#: ``lbr_reset_reason_t`` in the firmware (``health.h``), by code.
-RESET_REASONS = (
-    "UNKNOWN",
-    "POWER_ON",
-    "SOFTWARE",
-    "PANIC",
-    "WATCHDOG",
-    "BROWNOUT",
-    "DEEP_SLEEP",
-    "EXTERNAL",
-)
 _CRASH_RESETS = frozenset({"PANIC", "WATCHDOG", "BROWNOUT"})
 
 MAX_REPORTED_MALFORMED = 20
@@ -176,14 +166,6 @@ def _text(counter: _CountingReader) -> io.TextIOWrapper:
     buffered = io.BufferedReader(counter, buffer_size=READ_CHUNK)
     # The format is ASCII; undecodable bytes become U+FFFD and fail that row only.
     return io.TextIOWrapper(buffered, encoding="utf-8-sig", errors="replace", newline="")
-
-
-def reset_reason_name(code: str) -> str:
-    """Firmware reset reason name for a session ``reset_reason`` value."""
-
-    if code.isdigit() and int(code) < len(RESET_REASONS):
-        return RESET_REASONS[int(code)]
-    return f"code {code}" if code else ""
 
 
 def _int_or_none(text: str) -> int | None:
