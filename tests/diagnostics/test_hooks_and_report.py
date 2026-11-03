@@ -192,3 +192,20 @@ def test_missing_packages_are_reported() -> None:
 def test_frozen_builds_are_identified(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(report_module.sys, "frozen", True, raising=False)
     assert "Frozen build: yes" in build_report(None)
+
+
+def test_failed_file_menu_load_is_logged_with_traceback(
+    session: DiagnosticsSession, tmp_path: Path
+) -> None:
+    from lbr_dashboard.app import create_application, create_main_window
+
+    create_application([])
+    window = create_main_window()
+    missing = tmp_path / "missing.csv"
+    window.csv_requested.emit(str(missing))
+    window.close()
+
+    assert any("Could not load" in record for record in session.recent_records())
+    assert session.log_file is not None
+    text = session.log_file.read_text(encoding="utf-8")
+    assert "Could not load" in text and "FileNotFoundError" in text
