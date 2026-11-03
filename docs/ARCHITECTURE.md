@@ -57,6 +57,10 @@ when needed, and drains queued events at its normal update boundary.
 
 ## Legacy CSV loading
 
+Generic descriptor and sparse sample contracts are documented in
+[signal-model.md](signal-model.md). They are independent of the legacy table
+importer and do not add a hardware or transport dependency.
+
 Columns are selected by physical index, so repeated display names retain their
 own values. Name lookup returns the first occurrence (including `timestamp_ms`).
 Non-finite numeric cells become unavailable values and are omitted from plots.
