@@ -50,6 +50,10 @@ and widgets cannot import that layer, including `dashboard_controller`.
 
 ## Worker lifecycle
 
+Replay and live-follow use one application-owned [session clock](session-clock.md).
+Its subscribers receive one immutable selected-time frame; widgets do not own
+independent playback clocks or timers.
+
 Sparse session storage, range/nearest queries, immutable snapshots, and bounded
 live retention are documented in [telemetry-sessions.md](telemetry-sessions.md).
 
