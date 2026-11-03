@@ -17,19 +17,19 @@ def check(args: list[str], directory: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(QT_QPA_PLATFORM="offscreen", PYTHONFAULTHANDLER="1", UV_PYTHON_DOWNLOADS="never")
     env.update(UV_PYTHON=sys.executable, UV_PROJECT_ENVIRONMENT=str(directory / ".venv"))
-    temporary = directory / "test-results/tmp"
-    temporary.mkdir(parents=True, exist_ok=True)
-    env.update(TEMP=str(temporary), TMP=str(temporary), TMPDIR=str(temporary))
-    return subprocess.run(
-        args,
-        cwd=directory,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        encoding="utf-8",
-        errors="replace",
-    )
+    # Mutation fixtures must stay outside the project scanned by later gates.
+    with TemporaryDirectory(prefix="gate-worker-", dir=directory.parent) as temporary:
+        env.update(TEMP=temporary, TMP=temporary, TMPDIR=temporary)
+        return subprocess.run(
+            args,
+            cwd=directory,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            encoding="utf-8",
+            errors="replace",
+        )
 
 
 def copy_project(directory: Path) -> None:
