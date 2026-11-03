@@ -77,7 +77,8 @@ Planned releases target Windows first: a portable ZIP and an installer
 ([#52](https://github.com/longhorn-baja-racing/dashboard/issues/52),
 [#53](https://github.com/longhorn-baja-racing/dashboard/issues/53),
 [#56](https://github.com/longhorn-baja-racing/dashboard/issues/56)). No release
-has been published yet. macOS and Linux distributions are deferred until the
+has been published yet, but every pull request builds and smoke-tests a
+portable Windows ZIP; see [portable build](docs/portable-build.md). macOS and Linux distributions are deferred until the
 Windows release works; CI keeps running on all three platforms for development.
 
 The dashboard is released under the [MIT License](LICENSE). Packaged builds
