@@ -13,14 +13,14 @@ generic session model (#18/#21) come next, after #129's import states.
 
 ```python
 CsvMapping(
-    time_column=0,            # index of the time column
-    time_unit="ms",           # s, ms, us, ns or iso8601; never guessed
+    time_column=0,  # index of the time column
+    time_unit="ms",  # s, ms, us, ns or iso8601; never guessed
     signals=(
         ColumnMapping(column=1, name="signal_a", unit="V", kind=SignalKind.NUMBER),
         ColumnMapping(column=4, name="flag", kind=SignalKind.BOOLEAN),
     ),
-    encoding="utf-8",         # e.g. "cp1252" for files saved by older Windows tools
-    delimiter=",",            # one character, e.g. ";" for European spreadsheets
+    encoding="utf-8",  # e.g. "cp1252" for files saved by older Windows tools
+    delimiter=",",  # one character, e.g. ";" for European spreadsheets
 )
 ```
 
