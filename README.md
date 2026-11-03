@@ -88,12 +88,7 @@ Run the same checks locally as CI:
 
 ```sh
 uv sync --locked --extra dev
-uv run --locked pytest --cov --cov-report=xml
-uv run --locked ruff check .
-uv run --locked ruff format --check .
-uv run --locked pyright
-uv build --no-sources
-uv run --locked python scripts/check_package.py
+uv run --locked python scripts/check_quality.py
 ```
 
 Tests set Qt's offscreen mode and require no physical telemetry hardware.
@@ -101,6 +96,11 @@ CI runs Python 3.13 on Windows, macOS and Linux, and Python 3.10–3.12 on Linux
 It checks the lockfile, lint, formatting, typing, dependency consistency, and regression tests with at least 90% branch-aware coverage. Python warnings, unknown pytest settings/markers, unexpected passing xfails, Qt critical logs, unhandled Qt callback exceptions, and hung tests fail the run. Both the wheel and source distribution must install in an isolated environment and launch, load CSV data, plot a selected signal, and resolve package resources without importing from the checkout.
 The Makefile provides optional shortcuts; Windows contributors can use the
 commands above without installing Make.
+Use uv 0.12.23 to match CI. The shared runner also proves that isolated failing
+tests, bad formatting, type errors and a stale lockfile are rejected. See
+[quality gate commands and enforcement](docs/quality.md) for per-stage commands,
+negative-control evidence and the distinction between CI results and server-side
+merge rules.
 
 Dependency changes update `pyproject.toml` and `uv.lock` together. Before
 distributing releases, the team must choose and include a project license and
