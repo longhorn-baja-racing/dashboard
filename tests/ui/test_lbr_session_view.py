@@ -116,7 +116,7 @@ def test_cancelled_import_changes_nothing(
     window: MainWindow, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(main_window.QProgressDialog, "wasCanceled", lambda self: True)
-    assert window.load_lbr_csv(DEMO) is False
+    window.load_csv(DEMO)
     assert view_of(window).session is None and window.pages.currentIndex() == 0
     assert window.import_error is None
 

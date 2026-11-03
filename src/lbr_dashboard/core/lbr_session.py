@@ -30,6 +30,26 @@ CHANNEL_KINDS = ("sample", "heartbeat", "health")
 _SCALED_UNIT = re.compile(r"^(?P<base>.*\S)\s*\*\s*1e(?P<exp>[+-]?\d+)$")
 MAX_DISCRETE_LEVELS = 16
 
+#: ``lbr_reset_reason_t`` in the firmware (``health.h``), by code.
+RESET_REASONS = (
+    "UNKNOWN",
+    "POWER_ON",
+    "SOFTWARE",
+    "PANIC",
+    "WATCHDOG",
+    "BROWNOUT",
+    "DEEP_SLEEP",
+    "EXTERNAL",
+)
+
+
+def reset_reason_name(code: str) -> str:
+    """Firmware reset reason name for a session ``reset_reason`` value."""
+
+    if code.isdigit() and int(code) < len(RESET_REASONS):
+        return RESET_REASONS[int(code)]
+    return f"code {code}" if code else ""
+
 
 def display_unit(unit: str) -> tuple[str, float]:
     """Return the unit to show and the factor to apply, e.g. ``deg*1e-7``.

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -15,8 +16,8 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
-from ..core.log import LogImporter, LogSessionStore
-from ..importers.lbr_csv import LbrCsvCancelled, LbrCsvError, LbrCsvImporter, is_lbr_csv
+from ..core.lbr_session import LbrSession
+from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
 from .lbr_session_view import LbrSessionView
 from .left_panel import LeftPanel
@@ -24,12 +25,42 @@ from .right_panel import RightPanel
 from .top_menu_bar import TopMenuBar
 
 
+class CsvLoader(Protocol):
+    """Synchronous application operation exposed to the window."""
+
+    def load_csv(self, file_path: str) -> None: ...
+
+
+class ImportProgress:
+    """A cancellable progress dialog that importers report into."""
+
+    def __init__(self, parent: QMainWindow, file_name: str) -> None:
+        self._dialog = QProgressDialog(f"Reading {file_name}...", "Cancel", 0, 1000, parent)
+        self._dialog.setWindowTitle("Opening session")
+        self._dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._dialog.setMinimumDuration(400)
+
+    def report(self, done: int, total: int) -> bool:
+        """Show progress and return False once the user has cancelled."""
+
+        self._dialog.setValue(min(999, done * 1000 // max(total, 1)))
+        QApplication.processEvents()
+        return not self._dialog.wasCanceled()
+
+    def close(self) -> None:
+        self._dialog.close()
+
+
 class MainWindow(QMainWindow):
     """Main application window that coordinates imported data and presentation."""
 
-    def __init__(self, importer: LogImporter) -> None:
+    csv_requested = Signal(str)
+    csv_load_failed = Signal(str, str)
+    column_selected = Signal(int)
+
+    def __init__(self) -> None:
         super().__init__()
-        self._log_store = LogSessionStore(importer)
+        self._controller: CsvLoader | None = None
         self.setWindowTitle("LBR Dashboard")
         self.resize(1200, 700)
 
@@ -64,6 +95,11 @@ class MainWindow(QMainWindow):
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
 
+    def attach_controller(self, controller: CsvLoader) -> None:
+        """Keep the application controller alive without owning its model data."""
+
+        self._controller = controller
+
     def _select_column(self, column_index: int) -> None:
         """Highlight and plot the selected column, including the first selection."""
 
@@ -71,64 +107,63 @@ class MainWindow(QMainWindow):
         if column_index < 0:
             return
 
-        item = self.left_panel.list_widget.item(column_index)
-        if item is not None:
-            column_name = item.text()
-            self.right_panel.plot_column(
-                column_name,
-                self._log_store.numeric_column(column_name),
-                self._log_store.numeric_column("timestamp_ms"),
-            )
+        self.column_selected.emit(column_index)
 
     def open_csv(self) -> None:
         """Open a CSV file and display its columns and rows."""
 
         file_path, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv)")
         if file_path:
-            self.load_csv(Path(file_path))
+            self.csv_requested.emit(file_path)
 
     def load_csv(self, file_path: Path) -> None:
-        """Ask the importer to decode a CSV, then pass its model to the panels."""
+        """Load synchronously so callers receive decoding and filesystem errors."""
 
-        if is_lbr_csv(file_path):
-            self.load_lbr_csv(file_path)
-            return
-        if not self._log_store.load(file_path):
-            return
+        if self._controller is None:
+            raise RuntimeError("No CSV loader is attached to this window")
+        self._controller.load_csv(str(file_path))
 
+    def show_load_error(self, file_path: str, message: str) -> None:
+        """Expose a failed UI request to users and signal observers."""
+
+        self.statusBar().showMessage(f"Could not load {file_path}: {message}")
+        self.csv_load_failed.emit(file_path, message)
+
+    def display_log(self, headers: tuple[str, ...], rows: tuple[tuple[str, ...], ...]) -> None:
+        """Render an already imported session."""
+
+        self.statusBar().clearMessage()
         self.pages.setCurrentIndex(0)
-        self.setWindowTitle(f"LBR Dashboard - {file_path.name}")
-        self.left_panel.set_columns(list(self._log_store.headers))
-        self.right_panel.set_table(self._log_store.headers, self._log_store.rows)
+        self.right_panel.set_table(headers, rows)
+        self.left_panel.set_columns(list(headers))
         self.left_panel.list_widget.setCurrentRow(0)
-        self._select_column(0)
 
-    def load_lbr_csv(self, file_path: Path) -> bool:
-        """Open a firmware lbr-csv export; on failure keep what is shown and explain."""
+    def plot_column(
+        self,
+        column_name: str,
+        values: NumericColumn | None,
+        timestamp_values: NumericColumn | None,
+    ) -> None:
+        """Forward model values to the presentation widget for plotting."""
 
-        progress = QProgressDialog(f"Reading {file_path.name}...", "Cancel", 0, 1000, self)
-        progress.setWindowTitle("Opening session")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(400)
+        self.right_panel.plot_column(column_name, values, timestamp_values)
 
-        def report(done: int, total: int) -> bool:
-            progress.setValue(min(999, done * 1000 // max(total, 1)))
-            QApplication.processEvents()
-            return not progress.wasCanceled()
+    def show_source_name(self, file_name: str) -> None:
+        """Name the file whose data is currently shown."""
 
-        try:
-            session = LbrCsvImporter().import_session(file_path, progress=report)
-        except LbrCsvCancelled:
-            return False
-        except LbrCsvError as error:
-            self.show_import_error(str(error))
-            return False
-        finally:
-            progress.close()
+        self.setWindowTitle(f"LBR Dashboard - {file_name}")
+
+    def import_progress(self, file_name: str) -> ImportProgress:
+        """Progress for a long import; the caller closes it when done."""
+
+        return ImportProgress(self, file_name)
+
+    def display_lbr_session(self, session: LbrSession) -> None:
+        """Show an imported firmware session in the session view."""
+
+        self.statusBar().clearMessage()
         self.lbr_view.set_session(session)
         self.pages.setCurrentWidget(self.lbr_view)
-        self.setWindowTitle(f"LBR Dashboard - {file_path.name}")
-        return True
 
     def show_import_error(self, message: str) -> None:
         """Explain a failed import without blocking; the current view is unchanged."""

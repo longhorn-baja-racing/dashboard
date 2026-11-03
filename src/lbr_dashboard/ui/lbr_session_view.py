@@ -34,8 +34,8 @@ from ..core.lbr_session import (
     LbrSession,
     SessionEvent,
     display_unit,
+    reset_reason_name,
 )
-from ..importers.lbr_csv import reset_reason_name
 
 ID_ROLE = Qt.ItemDataRole.UserRole
 PALETTE = (
