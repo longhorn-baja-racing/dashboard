@@ -146,11 +146,12 @@ def measure(path: Path) -> dict[str, float]:
     del session
 
     began = time.perf_counter()
-    if not window.load_lbr_csv(path):
-        raise RuntimeError(f"could not open {path}")
+    window.load_csv(path)
     application.processEvents()
     open_s = time.perf_counter() - began
     view = window.lbr_view
+    if view.session is None:
+        raise RuntimeError(f"could not open {path}")
     rows = view.session.row_count if view.session is not None else 0
 
     def plot(ids: list[str]) -> float:

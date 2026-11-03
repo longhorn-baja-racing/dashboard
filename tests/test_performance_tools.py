@@ -76,7 +76,8 @@ def test_decimated_plot_keeps_the_spike_and_the_gaps(tmp_path: Path, qtbot: QtBo
     qtbot.addWidget(window)
     window.resize(900, 600)
     window.show()
-    assert window.load_lbr_csv(session_file)
+    window.load_csv(session_file)
+    assert window.lbr_view.session is not None
     view = window.lbr_view
     for channel_id in ("corner_fl.imu_fl_accel_z", "corner_br.imu_br_accel_z"):
         view.browser.set_checked(channel_id, True)
