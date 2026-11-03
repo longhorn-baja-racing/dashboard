@@ -96,6 +96,13 @@ than the retained window are counted as evicted instead of changing its bounds.
 The snapshot's `evicted` counters distinguish deliberate storage retention from
 upstream dropped records in `source_health`.
 
+Adapters with known timestamp cadence can configure `max_timestamp_jump_ns`.
+A sample beyond that distance from its signal's newest accepted time rejects
+the batch before retention changes. Choose a limit that allows valid gaps and
+late arrivals. The default leaves timestamp admission unrestricted within the
+declared domain. On a device clock reset, use a new timestamp domain and start a
+new session or signal instead of combining epochs in the existing series.
+
 `ingest_source(source, limit=None)` is an owner-thread convenience: it checks the
 source/catalog compatibility before draining, drains at most `max_batch_events`,
 and stores persistent source health even if error/end events could not fit in

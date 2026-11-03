@@ -138,6 +138,7 @@ class TelemetrySession:
         metadata: Mapping[str, Any] | None = None,
         max_samples_per_signal: int | None = None,
         retention_ns: int | None = None,
+        max_timestamp_jump_ns: int | None = None,
         max_source_events: int = 64,
         max_batch_events: int = 10000,
     ) -> None:
@@ -147,6 +148,8 @@ class TelemetrySession:
             _integer(max_samples_per_signal, "max_samples_per_signal", minimum=1)
         if retention_ns is not None:
             _integer(retention_ns, "retention_ns", minimum=0)
+        if max_timestamp_jump_ns is not None:
+            _integer(max_timestamp_jump_ns, "max_timestamp_jump_ns", minimum=0)
         self._event_capacity = _integer(max_source_events, "max_source_events", minimum=1)
         self._batch_capacity = _integer(max_batch_events, "max_batch_events", minimum=1)
         self._schema = schema
@@ -155,6 +158,7 @@ class TelemetrySession:
         self._metadata = _freeze_mapping({} if metadata is None else metadata, "session metadata")
         self._capacity = max_samples_per_signal
         self._retention_ns = retention_ns
+        self._max_timestamp_jump_ns = max_timestamp_jump_ns
         self._series: dict[str, list[SessionRecord]] = {key: [] for key in self._descriptors}
         self._domains: dict[str, str] = {}
         self._health: dict[str, SourceHealth] = {}
@@ -200,6 +204,7 @@ class TelemetrySession:
                 raise ValueError("health must identify a known source and contain SourceHealth")
         with self._lock:
             pending: dict[str, list[SessionRecord]] = {}
+            latest: dict[str, int] = {}
             domains = dict(self._domains)
             pending_events: list[SourceEvent] = []
             sequence = self._sequence
@@ -219,15 +224,20 @@ class TelemetrySession:
                     domain = domains.setdefault(event.signal_id, event.sample.timestamp_domain)
                     if domain != event.sample.timestamp_domain:
                         raise ValueError("one signal cannot mix timestamp domains in a session")
-                    if event.signal_id not in pending:
-                        pending[event.signal_id] = list(self._series[event.signal_id])
-                    records = pending[event.signal_id]
+                    if self._max_timestamp_jump_ns is not None:
+                        history = self._series[event.signal_id]
+                        stamp = event.sample.timestamp_ns
+                        previous_time = latest.get(
+                            event.signal_id, _time(history[-1]) if history else stamp
+                        )
+                        if abs(stamp - previous_time) > self._max_timestamp_jump_ns:
+                            raise ValueError(
+                                f"Timestamp jump for {event.signal_id} exceeds the configured limit"
+                            )
+                        latest[event.signal_id] = max(previous_time, stamp)
                     sequence += 1
                     record = SessionRecord(event.signal_id, event.source_id, event.sample, sequence)
-                    if not records or _time(record) >= _time(records[-1]):
-                        records.append(record)
-                    else:
-                        records.insert(bisect_right(records, _time(record), key=_time), record)
+                    pending.setdefault(event.signal_id, []).append(record)
                     continue
                 elif event.kind is SourceEventKind.HEALTH:
                     assert event.health is not None
@@ -262,7 +272,14 @@ class TelemetrySession:
                             )
                 pending_events.append(event)
             evicted = dict(self._evicted)
-            for signal_id, records in pending.items():
+            # All admission checks above must succeed before touching retained history.
+            for signal_id, incoming in pending.items():
+                records = self._series[signal_id]
+                for record in incoming:
+                    if not records or _time(record) >= _time(records[-1]):
+                        records.append(record)
+                    else:
+                        records.insert(bisect_right(records, _time(record), key=_time), record)
                 before = len(records)
                 if self._retention_ns is not None and records:
                     cutoff = _time(records[-1]) - self._retention_ns
@@ -272,7 +289,6 @@ class TelemetrySession:
                 evicted[signal_id] += before - len(records)
             health_changed = any(self._health.get(key) != value for key, value in health.items())
             if batch or health_changed:
-                self._series.update(pending)
                 self._domains = domains
                 self._sequence = sequence
                 self._health.update(health)
