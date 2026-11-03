@@ -7,7 +7,9 @@ from .main_window import MainWindow
 
 
 def apply_theme(window: MainWindow, theme: str) -> None:
-    palette = QApplication.style().standardPalette()
+    palette = (
+        QApplication.palette() if theme == "system" else QApplication.style().standardPalette()
+    )
     if theme in {"light", "dark"}:
         dark = theme == "dark"
         background, base, text = (

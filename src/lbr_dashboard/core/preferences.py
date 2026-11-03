@@ -25,11 +25,19 @@ class PreferencesError(ValueError):
         self.code = code
 
 
+def _encodable(value: str) -> None:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise PreferencesError("invalid_json", "preference text must be valid UTF-8") from error
+
+
 def _text(value: object, name: str) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > 8192 or "\0" in value:
         raise PreferencesError(
             "invalid_field", f"{name} must be nonempty text without nulls (max 8192 characters)"
         )
+    _encodable(value)
     return value
 
 
@@ -44,6 +52,8 @@ def _bounded(value: object) -> None:
             raise PreferencesError("too_complex", "preferences exceed depth or item limits")
         if isinstance(item, str) and len(item) > 8192:
             raise PreferencesError("too_complex", "preference text exceeds 8192 characters")
+        if isinstance(item, str):
+            _encodable(item)
         if isinstance(item, (Mapping, list, tuple)):
             if id(item) in active:
                 raise PreferencesError("invalid_json", "preferences contain a cycle")
@@ -56,6 +66,7 @@ def _bounded(value: object) -> None:
                                 "invalid_json",
                                 "preference keys must be strings of at most 128 characters",
                             )
+                        _encodable(key)
                         visit(child, depth + 1)
                 else:
                     for child in item:

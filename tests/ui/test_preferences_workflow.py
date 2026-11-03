@@ -3,7 +3,8 @@
 from typing import cast
 
 import pytest
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication
 
 from lbr_dashboard.app import create_main_window
 from lbr_dashboard.core import Preferences, PreferencesError, PreferencesStore, RecentSource
@@ -21,6 +22,23 @@ def window(qtbot, path):
 
 def menu(view):
     return cast(TopMenuBar, view.menuBar())
+
+
+def test_system_theme_uses_the_application_platform_palette(qtbot, tmp_path):
+    original = QApplication.palette()
+    platform = QPalette(original)
+    platform.setColor(QPalette.ColorRole.Window, QColor("#182838"))
+    platform.setColor(QPalette.ColorRole.Base, QColor("#102030"))
+    try:
+        QApplication.setPalette(platform)
+        view, _, controller = window(qtbot, tmp_path / "preferences.json")
+        controller.set_theme("dark")
+        controller.set_theme("system")
+        assert view.palette().color(QPalette.ColorRole.Window).name() == "#182838"
+        assert view.right_panel.table.palette().color(QPalette.ColorRole.Base).name() == "#102030"
+        view.close()
+    finally:
+        QApplication.setPalette(original)
 
 
 def test_theme_and_recent_paths_survive_window_restart_and_menu_reopens_file(

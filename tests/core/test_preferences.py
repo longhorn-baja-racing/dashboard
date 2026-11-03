@@ -273,9 +273,8 @@ def test_depth_node_string_byte_and_unsupported_value_limits() -> None:
     large = Preferences(extra={str(i): "x" * 8000 for i in range(10)})
     with pytest.raises(PreferencesError, match="64 KiB"):
         large.to_bytes()
-    invalid_unicode = Preferences(extra={"x": "\ud800"})
     with pytest.raises(PreferencesError, match="UTF-8"):
-        invalid_unicode.to_bytes()
+        Preferences(extra={"x": "\ud800"})
     with pytest.raises(PreferencesError):
         Preferences.from_bytes(cast(Any, "{}"))
 

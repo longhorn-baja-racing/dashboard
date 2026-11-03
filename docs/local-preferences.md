@@ -24,7 +24,7 @@ does not read/write the user's settings. `main()` enables the platform store.
 
 Preferences → Theme offers System, Light and Dark. A successful save applies the
 new window-scoped palette and plot colors while retaining data/selection. System
-uses Qt's standard palette at selection/startup. File → Recent CSV files lists up
+uses Qt's application platform palette at selection/startup. File → Recent CSV files lists up
 to ten successful imports; selecting one invokes the normal load/error flow.
 Failed or cancelled imports do not add entries. Missing recent paths remain
 listed and show an ordinary load error rather than silently disappearing.
@@ -62,7 +62,7 @@ workspace export of preferences.
 
 Recent entries are unique by `(kind, location)`; remembering an existing entry
 moves it to the front and retains at most ten. Unknown extension fields are
-preserved at root and source-entry levels, including exact metadata keys.
+preserved at root and source-entry levels, including exact metadata keys. All text and keys must encode as UTF-8; lone surrogates trigger invalid-file/backup recovery before a loaded file can break later saves.
 Extensions cannot replace known fields. Unknown themes and future/invalid schema
 versions are rejected. In particular, save refuses to overwrite an unsupported
 primary version even if an older backup could be loaded.
@@ -132,3 +132,4 @@ Timestamp edits recompute the selected signal's x coordinates; duplicate heading
 retain their physical column identity. Blank/non-numeric/non-finite text remains
 visible in the table and is treated as unavailable for numeric plotting. Edits
 do not save the source CSV or enter preference files; reloading restores file data.
+
