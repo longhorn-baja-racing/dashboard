@@ -1,5 +1,14 @@
 # Generic signal model
 
+Signal IDs use the registry identifier syntax. Source and device IDs preserve
+nonblank text exactly, including case and punctuation. Integral timestamps are
+stored as Python integers, including when supplied as NumPy integers.
+
+Immutable model records are explicitly unhashable. Use signal IDs as dictionary
+keys and the plain JSON containers from `to_dict()` for portable copies and
+persistence. Worker events accept the concrete model records and snapshot
+mutable byte arrays as bytes.
+
 Issue #18 adds framework-neutral descriptors and per-signal samples in
 `lbr_dashboard.core`. It does not choose hardware, a wire protocol, unit
 conversion, resampling, or a replacement for the existing CSV table UI.
