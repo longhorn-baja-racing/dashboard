@@ -7,7 +7,14 @@ from math import isfinite
 
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...core.log import NumericColumn
 
@@ -44,18 +51,26 @@ class RightPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        self.table_summary = QLabel()
+        layout.addWidget(self.table_summary)
         layout.addWidget(splitter)
         self.setStyleSheet("background-color: #3a3a3a; color: #ffffff;")
 
     def set_table(self, headers: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
         """Render rows without retaining the imported model or numeric arrays."""
 
+        columns = min(len(headers), 256)
+        shown = min(len(rows), 1000, 50000 // max(columns, 1))
         self.table.clearContents()
-        self.table.setColumnCount(len(headers))
-        self.table.setRowCount(len(rows))
-        self.table.setHorizontalHeaderLabels(list(headers))
-        for row_index, row in enumerate(rows):
-            for column_index, value in enumerate(row[: len(headers)]):
+        self.table.setColumnCount(columns)
+        self.table.setRowCount(shown)
+        self.table.setHorizontalHeaderLabels(list(headers[:columns]))
+        self.table_summary.setText(
+            f"Showing {shown:,} of {len(rows):,} rows and {columns:,} of {len(headers):,} columns. "
+            "Plots use the full imported series."
+        )
+        for row_index, row in enumerate(rows[:shown]):
+            for column_index, value in enumerate(row[:columns]):
                 self.table.setItem(row_index, column_index, QTableWidgetItem(value))
 
     def highlight_column(self, column_index: int) -> None:
@@ -83,14 +98,13 @@ class RightPanel(QWidget):
         if values is None:
             return
 
-        if timestamp_values is not None and column_name != "timestamp_ms":
+        if timestamp_values is not None and column_name.casefold() != "timestamp_ms":
             timestamps = [
                 value for value in timestamp_values if value is not None and isfinite(value)
             ]
             start_time = min(timestamps) if timestamps else 0.0
             x_values = [
-                value - start_time if value is not None and isfinite(value) else None
-                for value in timestamp_values
+                value - start_time if value is not None else None for value in timestamp_values
             ]
             x_label = "Time since start (ms)"
         else:

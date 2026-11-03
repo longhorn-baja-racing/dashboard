@@ -13,7 +13,7 @@ SMOKE = """
 import sys
 from importlib.metadata import distribution
 from pathlib import Path
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QEventLoop
 import lbr_dashboard
 from lbr_dashboard.app import create_application, create_main_window, main
 from lbr_dashboard.resources import resource_text
@@ -28,7 +28,19 @@ assert "__version__" in resource_text("version.py")
 application = create_application([])
 window = create_main_window()
 window.show()
-window.load_csv(Path(sys.argv[1]))
+assert window.import_state == "empty"
+window.demo_button.click()
+assert window.right_panel.table.rowCount() == 4
+assert window._controller is not None
+window._controller.start_import(sys.argv[1])
+loop = QEventLoop()
+poll = QTimer()
+poll.timeout.connect(lambda: loop.quit() if window.import_state != "loading" else None)
+poll.start(10)
+QTimer.singleShot(10000, loop.quit)
+loop.exec()
+poll.stop()
+assert window.import_state == "ready", window.import_message.text()
 assert window.left_panel.list_widget.count() == 16
 assert window.right_panel.table.rowCount() == 10
 window.left_panel.list_widget.setCurrentRow(1)
