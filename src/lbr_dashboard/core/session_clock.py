@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from fractions import Fraction
 from math import isfinite
+from numbers import Integral
 from threading import get_ident
 from time import monotonic_ns
 
@@ -43,9 +44,9 @@ class ClockSubscriberError(RuntimeError):
 
 
 def _integer(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, Integral):
         raise ValueError(f"{name} must be an integer number of nanoseconds")
-    return value
+    return int(value)
 
 
 def _bounds(start: int | None, end: int | None) -> None:
@@ -245,6 +246,9 @@ class SessionClock:
         return self._command(action)
 
     def update_bounds(self, start_ns: int | None, end_ns: int | None) -> ClockSnapshot:
+        self._check_owner()
+        if self._reference is not None:
+            raise ValueError("clock is bound to a session; use update_from_session")
         _bounds(start_ns, end_ns)
 
         return self._command(lambda: self._set_bounds(start_ns, end_ns))
@@ -255,7 +259,7 @@ class SessionClock:
             self._position = None
             if self._mode is not PlaybackMode.LIVE:
                 self._mode = PlaybackMode.PAUSED
-        elif self._mode is PlaybackMode.LIVE and self._connected:
+        elif self._mode is PlaybackMode.LIVE and (self._connected or self._position is None):
             self._position = Fraction(end_ns)
         elif self._position is None:
             self._position = Fraction(start_ns)

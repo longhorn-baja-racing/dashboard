@@ -40,9 +40,9 @@ unspecified session may wait for its first actual domain before binding.
 | `seek(timestamp_ns)` | Clamps to retained bounds, selects that exact integer time and pauses. Backwards seeking is supported. With no bounds there is no selected time. Seeking out of live-follow explicitly detaches it. |
 | `set_speed(rate)` | Accounts for elapsed playback at the old rate, then applies the new positive rate without a position jump. |
 | `tick()` | Advances playing state once and publishes a changed frame. It does not extrapolate live-follow beyond recorded bounds. |
-| `update_bounds(start_ns, end_ns)` | Updates one declared timeline. Selection clamps into retained bounds, including when eviction advances the start. Shrinking bounds can end playback; later expansion does not automatically resume ended playback. |
+| `update_bounds(start_ns, end_ns)` | Updates an unbound clock. Session-bound clocks require `update_from_session`. Selection clamps into retained bounds. Shrinking bounds can end playback. |
 | `follow_live()` | Follows the latest recorded end while connected. Speed is retained for later replay and does not multiply the live timestamp. |
-| `set_connected(False)` | Keeps live-follow intent but holds its last selected time while disconnected; it does not advance using reception/wall time. |
+| `set_connected(False)` | Holds a previous live selection while disconnected. If no selection exists, the first bounds select the latest end. |
 | `set_connected(True)` | If still following live, jumps to the latest known recorded end. A paused or manually sought selection remains detached. |
 
 Both bounds must be present or absent; reversed bounds and non-integer times are
