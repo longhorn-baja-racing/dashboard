@@ -94,7 +94,7 @@ def main() -> None:
                 "-I",
                 "-c",
                 SMOKE,
-                str(ROOT / "sample_data" / "sample_baja_log.csv"),
+                str(ROOT / "sample_data" / "legacy" / "sample_baja_log.csv"),
                 cwd=directory,
             )
             run("uv", "pip", "check", "--python", str(python))
