@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, TypeAlias
@@ -41,7 +42,8 @@ class LogSession:
 
         def as_float(value: str) -> float | None:
             try:
-                return float(value)
+                number = float(value)
+                return number if isfinite(number) else None
             except (TypeError, ValueError):
                 return None
 
@@ -55,7 +57,13 @@ class LogSession:
 class LogImporter(Protocol):
     """Decode a legacy file into the presentation-independent tabular model."""
 
-    def import_session(self, path: Path) -> LogSession: ...
+    def import_session(
+        self,
+        path: Path,
+        *,
+        cancelled: Callable[[], bool] = lambda: False,
+        progress: Callable[[int], None] = lambda count: None,
+    ) -> LogSession: ...
 
 
 class LogSessionStore:
@@ -91,4 +99,8 @@ class LogSessionStore:
 
         if self._session is None:
             return None
+        if name == "timestamp_ms":
+            name = next(
+                (header for header in self.headers if header.casefold() == "timestamp_ms"), name
+            )
         return self._session.numeric_column(name)

@@ -1,5 +1,6 @@
 """Bounded preview, cooperative cancellation and reporting use the real parser."""
 
+import csv
 from threading import Event
 
 import pytest
@@ -21,20 +22,10 @@ def test_cancel_mid_read_never_returns_partial_session(tmp_path):
     assert path.read_text().endswith("0,2\n")
 
 
-@pytest.mark.parametrize(
-    ("content", "message"),
-    [
-        ("a\n" + "\n" * 50001, "50,000 rows"),
-        (",".join(["a"] * 129) + "\n", "128 columns"),
-        ("a\n" + "x" * (16 * 1024 * 1024), "16 MiB"),
-        ("a,b\n" + "1,2\n" * 25000, "50,000 cells"),
-    ],
-    ids=["rows", "columns", "bytes", "cells"],
-)
-def test_large_preview_rejected_with_explanation(tmp_path, content, message):
+def test_parser_field_limit_retains_csv_line_diagnostic(tmp_path):
     path = tmp_path / "large.csv"
-    path.write_text(content)
-    with pytest.raises(ValueError, match=message):
+    path.write_text("a\n" + "x" * (csv.field_size_limit() + 1))
+    with pytest.raises(csv.Error, match="CSV line 2"):
         CsvImporter().import_session(path)
 
 

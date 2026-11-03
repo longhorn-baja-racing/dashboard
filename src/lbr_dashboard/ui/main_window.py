@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(card)
         layout.addWidget(splitter, 1)
         self.setCentralWidget(root)
-        self.import_controller = ImportController(self)
+        self.import_controller = ImportController(self, importer)
         self.open_button.clicked.connect(self.open_csv)
         self.demo_button.clicked.connect(self.try_demo)
         self.cancel_button.clicked.connect(self.import_controller.cancel)
@@ -172,7 +172,8 @@ class MainWindow(QMainWindow):
 
         self.right_panel.set_table(self._log_store.headers, self._log_store.rows)
         self._set_plot_columns()
-        self.left_panel.list_widget.setCurrentRow(0)
+        with QSignalBlocker(self.left_panel.list_widget):
+            self.left_panel.list_widget.setCurrentRow(0)
         self._select_column(0)
         self.source_label.setText("Local CSV loaded. No live sensor connection.")
         self.set_import_state("ready", "CSV loaded. Select a numeric column to plot.")
@@ -183,10 +184,15 @@ class MainWindow(QMainWindow):
         self._set_plot_columns()
         choices = self.left_panel.list_widget
         column = next(
-            (i for i in range(choices.count()) if choices.item(i).text() != "timestamp_ms"),
+            (
+                i
+                for i in range(choices.count())
+                if choices.item(i).text().casefold() != "timestamp_ms"
+            ),
             0 if choices.count() else -1,
         )
-        self.left_panel.list_widget.setCurrentRow(column)
+        with QSignalBlocker(self.left_panel.list_widget):
+            self.left_panel.list_widget.setCurrentRow(column)
         self._select_column(column)
         self.source_label.setText("Local CSV loaded. No live sensor connection.")
 
@@ -227,10 +233,10 @@ class MainWindow(QMainWindow):
         if menu is not None:
             menu.actions()[0].setEnabled(not loading)
 
-    def show_import_error(self, reason: str, recovery: str) -> None:
+    def show_import_error(self, reason: str, recovery: str, details: str = "") -> None:
         self.set_import_state("error", reason + " " + recovery)
         self.error_details.setPlainText(
-            "CSV import failed\nReason: " + reason + "\nRecovery: " + recovery
+            "CSV import failed\nReason: " + reason + "\nRecovery: " + recovery + "\n" + details
         )
         self.error_details.show()
         self.details_button.setText("Hide error details")

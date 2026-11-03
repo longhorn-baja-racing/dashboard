@@ -12,8 +12,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QTimer
 
-from .core.log import LogSession
-from .importers.csv_importer import CsvImporter
+from .core.log import LogImporter, LogSession
 
 if TYPE_CHECKING:
     from .ui.main_window import MainWindow
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
 class ImportFailure:
     reason: str
     recovery: str
+    details: str = ""
 
 
 def demo_session() -> LogSession:
@@ -52,7 +52,10 @@ def validate(session: LogSession) -> str:
                 f"CSV row {index} has {len(row)} fields; expected {len(session.headers)}."
             )
     warnings = []
-    time = session.numeric_column("timestamp_ms")
+    times = [name for name in session.headers if name.casefold() == "timestamp_ms"]
+    if len(times) > 1:
+        raise ValueError("Multiple timestamp_ms columns are ambiguous. Choose one time column.")
+    time = session.numeric_column(times[0]) if times else None
     if time is None:
         warnings.append(
             "No timestamp_ms column: showing sample index, not measurement time. "
@@ -71,14 +74,17 @@ def validate(session: LogSession) -> str:
         warnings.append(
             "Text/status columns remain in the table; this preview plots numeric values only."
         )
-    nonfinite = any(
-        value is not None and not isfinite(value)
-        for values in session.numeric_columns.values()
-        for value in values
-    )
+    nonfinite = 0
+    for row in session.rows:
+        for value in row:
+            try:
+                nonfinite += not isfinite(float(value))
+            except ValueError:
+                pass
     if nonfinite:
-        raise ValueError(
-            "A numeric column contains NaN or infinity. Use an empty cell for a missing value."
+        warnings.append(
+            f"{nonfinite} non-finite numeric tokens are unavailable in plots. "
+            "Original text remains in the table."
         )
     return " ".join(warnings)
 
@@ -111,10 +117,10 @@ def classify(error: Exception) -> ImportFailure:
 
 
 class ImportController(QObject):
-    def __init__(self, window: MainWindow, importer: CsvImporter | None = None) -> None:
+    def __init__(self, window: MainWindow, importer: LogImporter) -> None:
         super().__init__(window)
         self.window = window
-        self.importer = importer or CsvImporter()
+        self.importer = importer
         self.worker: Thread | None = None
         self.cancelled = Event()
         self.result: Queue[tuple[LogSession | None, str | ImportFailure]] = Queue(maxsize=1)
@@ -140,12 +146,26 @@ class ImportController(QObject):
                 session = self.importer.import_session(
                     path, cancelled=self.cancelled.is_set, progress=progress
                 )
+                final_warning = ""
+                if session.rows and len(session.rows[-1]) < len(session.headers):
+                    session = LogSession.from_rows(session.headers, session.rows[:-1])
+                    final_warning = "Dropped a truncated final row. "
                 warning = validate(session)
-                self.result.put((session, warning))
+                self.result.put((session, final_warning + warning))
             except InterruptedError:
                 self.result.put((None, "cancelled"))
             except Exception as error:
-                self.result.put((None, classify(error)))
+                failure = classify(error)
+                self.result.put(
+                    (
+                        None,
+                        ImportFailure(
+                            f"{path.name}: {failure.reason}",
+                            failure.recovery,
+                            f"File: {path}\n{type(error).__name__}: {error}",
+                        ),
+                    )
+                )
 
         self.worker = Thread(target=work, name="dashboard-csv-import", daemon=True)
         self.worker.start()
@@ -178,7 +198,7 @@ class ImportController(QObject):
                 "Import cancelled. Previous data is unchanged; open another CSV or try demo data.",
             )
         elif isinstance(detail, ImportFailure):
-            self.window.show_import_error(detail.reason, detail.recovery)
+            self.window.show_import_error(detail.reason, detail.recovery, detail.details)
         elif session is not None:
             self.window.present_session(session)
             self.window.set_import_state(

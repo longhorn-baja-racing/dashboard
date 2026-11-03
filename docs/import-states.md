@@ -38,7 +38,7 @@ These are preview bounds, not performance claims for the planned session store.
 
 Failed UI imports keep the previous model, selection, plot and raw table intact.
 The inline nonmodal message gives both a reason and recovery action. Error details
-can be hidden/shown or copied locally. Open another CSV or Try demo data recovers
+include the full file path and underlying parser/decode error, and can be hidden/shown or copied locally. Open another CSV or Try demo data recovers
 from an error; successful loads clear stale error details. Cancelling the file
 chooser changes nothing.
 
@@ -50,10 +50,11 @@ use the new validated asynchronous path; they do not raise hidden Qt-slot errors
 | --- | --- |
 | Missing file / permissions / invalid UTF-8 | Clear reason and corrective action; old session retained |
 | Empty or header-only file | No-data error; old session retained |
-| Broken quotes, inconsistent row widths | Malformed-file error; no partial table |
+| Broken quotes, inconsistent interior row widths or extra fields | Malformed-file error; previous session retained |
+| Empty lines / short final row | Empty lines skipped; short final row dropped with a visible warning |
 | Duplicate or empty headers | Ambiguous-name error; no incorrect column lookup |
 | Invalid/missing/non-finite timestamp_ms | Time-column error; no fabricated time or blanked prior graph |
-| NaN/infinite numeric value | Explicit error; empty cells are the supported missing-value representation |
+| NaN/infinite value outside the time column | Missing in plots, warning shown; original text retained in table |
 | No timestamp_ms column | Visible sample-index warning; no inferred measurement unit |
 | Text/status column | Raw values retained; visible explanation that the current preview plots numeric values only |
 | Duplicate/out-of-order finite times | Original row order and values retained; no sorting or timestamp rewriting |
@@ -92,3 +93,4 @@ Manual check: launch normally, click Try demo data, select pressure, then Open C
 with a malformed or non-UTF-8 file. Expect actionable inline details with the
 previous pressure graph still present. Copy the details, then load a valid file
 or click Try demo data again. No device or network is needed.
+
