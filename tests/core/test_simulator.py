@@ -9,8 +9,10 @@ import pytest
 from lbr_dashboard.core import (
     CancellationToken,
     SignalDescriptor,
+    SignalSample,
     SimulatedSignal,
     SimulatorSource,
+    SourceEvent,
     SourceEventKind,
     TelemetrySession,
     example_signals,
@@ -100,7 +102,11 @@ def test_100hz_1hz_and_status_keep_independent_counts_and_exact_provenance() -> 
     assert stats.lost == 5 and stats.stale == 5 and stats.unavailable == 5
     assert stats.attempted == 106 and stats.emitted == 96
     assert source.health().dropped_records == 5
-    errors = [cast(Any, event.error) for event in events if event.kind is SourceEventKind.ERROR]
+    errors = [
+        event.health.last_error
+        for event in events
+        if event.health is not None and event.health.last_error is not None
+    ]
     assert {error.code for error in errors} == {"simulated_loss", "simulated_stale"}
     store = TelemetrySession(source.schema)
     store.ingest(events, source_health={source.source_id: source.health()})
@@ -163,8 +169,32 @@ def test_stale_and_loss_have_no_records_unavailable_has_explicit_null_and_heartb
     ]
     assert [event.sample.value for event in data] == [0, None, None, 1]
     heartbeats = [event for event in events if event.kind is SourceEventKind.HEALTH]
-    assert len(heartbeats) == 7
+    assert len(heartbeats) == 9
     assert cast(Any, heartbeats[-1].health).dropped_records == 2
+
+
+def test_fault_health_cannot_evict_buffered_record_and_heartbeat_includes_queue_loss():
+    source = SimulatorSource((signal(loss=((0, 1),)),), capacity=1)
+    record = SourceEvent(
+        SourceEventKind.RECORD,
+        source.source_id,
+        signal_id="custom.reading",
+        sample=SignalSample(0, 5),
+    )
+    assert source.events.publish(record, timeout=0)
+    assert not source.events.publish(record, timeout=0)
+    assert source.health_for_heartbeat().dropped_records == 1
+    generator = source._generate(CancellationToken())
+    try:
+        marker = next(generator)
+        assert marker.kind is SourceEventKind.HEALTH
+        assert marker.health is not None and marker.health.last_error is not None
+        assert marker.health.last_error.code == "simulated_loss"
+        assert not source.events.publish(marker, timeout=0)
+        assert source.events.drain() == (record,)
+        assert source.health_for_heartbeat().dropped_records == 2  # queue + injected loss
+    finally:
+        cast(Any, generator).close()
 
 
 @pytest.mark.parametrize("offset", [0, 150_000_000, 1_000_000_000])
@@ -333,6 +363,7 @@ def test_noise_only_numeric_explicit_domains_rates_and_disjoint_windows() -> Non
         {"realtime": 1},
         {"now_ns": None},
         {"wait": 1},
+        {"duration_ns": None, "realtime": False},
     ],
 )
 def test_invalid_simulator_configuration(kwargs) -> None:
@@ -360,7 +391,21 @@ def test_invalid_schema_family_source_and_duplicate_signal_ids() -> None:
 
 
 def test_queue_loss_and_injected_loss_remain_distinguishable_and_bounded() -> None:
-    source = SimulatorSource(example_signals(), capacity=1, publish_timeout=0)
+    now = [0]
+
+    def wait(token, step):
+        now[0] += step
+
+    source = SimulatorSource(
+        example_signals(),
+        duration_ns=None,
+        realtime=True,
+        now_ns=lambda: now[0],
+        wait=wait,
+        disconnect_after_ns=1_000_000_001,
+        capacity=1,
+        publish_timeout=0,
+    )
     run(source)
     stats = source.simulator_stats
     assert stats.lost == 5

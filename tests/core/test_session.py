@@ -310,7 +310,7 @@ def test_source_integration_retains_health_when_controls_cannot_fit() -> None:
         yield event()
         raise OSError("Read failed")
 
-    source = IteratorSource("fixture", schema, broken, capacity=1, publish_timeout=0)
+    source = IteratorSource("fixture", schema, broken, is_live=True, capacity=1, publish_timeout=0)
     store = TelemetrySession(schema, max_samples_per_signal=3)
     source.open()
     source.start()
@@ -347,6 +347,23 @@ def test_same_queries_for_real_finite_and_live_source_interfaces(live) -> None:
         assert store.ingest_source(source, limit=0) == 0
     finally:
         assert source.close()
+
+
+@pytest.mark.parametrize("outlier", [0, 2**62])
+def test_timestamp_jump_guard_preserves_retained_data_and_accepts_normal_followup(outlier):
+    store = session(max_samples_per_signal=4, retention_ns=10, max_timestamp_jump_ns=10)
+    store.ingest([event(100), event(103)])
+    before = store.snapshot()
+    with pytest.raises(ValueError, match="Timestamp jump"):
+        store.ingest([event(104), event(outlier)])
+    assert store.snapshot() == before
+    store.ingest([event(104), event(102)])
+    assert [record.sample.timestamp_ns for record in store.range("lab.pressure", 0, 110)] == [
+        100,
+        102,
+        103,
+        104,
+    ]
 
 
 def test_source_preflight_rejection_does_not_drain_and_bad_batch_is_recoverable() -> None:

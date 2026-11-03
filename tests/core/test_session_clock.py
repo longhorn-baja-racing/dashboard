@@ -5,6 +5,7 @@ from fractions import Fraction
 from threading import Thread
 from typing import Any, cast
 
+import numpy as np
 import pytest
 
 from lbr_dashboard.core import (
@@ -47,6 +48,31 @@ def session(domain="relative", source="fixture", identifier="custom.pressure"):
         timestamp_domain=domain,
     )
     return TelemetrySession(SignalSchema(1, (model,)), max_samples_per_signal=10)
+
+
+def test_bound_clock_rejects_unchecked_bounds_and_accepts_numpy_seek():
+    store = session()
+    store.extend(
+        "custom.pressure",
+        [
+            SignalSample(10, 1, timestamp_domain="relative"),
+            SignalSample(20, 2, timestamp_domain="relative"),
+        ],
+    )
+    shared, _ = clock()
+    shared.update_from_session(store.snapshot(), "custom.pressure")
+    before = shared.snapshot()
+    with pytest.raises(ValueError, match="bound"):
+        shared.update_bounds(100, 200)
+    assert shared.snapshot() == before
+    assert shared.seek(np.int64(15)).selected_ns == 15  # pyright: ignore[reportArgumentType]
+
+
+def test_first_bounds_while_disconnected_live_select_latest():
+    shared, _ = clock(None, None)
+    shared.follow_live()
+    shared.set_connected(False)
+    assert shared.update_bounds(10, 20).selected_ns == 20
 
 
 def test_play_pause_resume_speed_and_end_have_exact_fake_time_results() -> None:
@@ -186,7 +212,7 @@ def test_disconnected_follow_waits_for_reconnect_and_retained_bounds_still_apply
     shared.set_connected(False)
     shared.update_bounds(None, None)
     shared.update_bounds(300, 400)
-    assert shared.snapshot().selected_ns == 300
+    assert shared.snapshot().selected_ns == 400
     assert shared.set_connected(True).selected_ns == 400
 
 

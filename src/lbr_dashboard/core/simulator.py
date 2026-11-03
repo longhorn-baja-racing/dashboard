@@ -12,7 +12,7 @@ from threading import Lock
 from time import monotonic_ns
 from typing import Any, cast
 
-from .contracts import SourceError, SourceEvent, SourceEventKind, SourceHealth, SourceState
+from .contracts import SourceError, SourceEvent, SourceEventKind, SourceHealth
 from .lifecycle import CancellationToken
 from .signals import SignalDescriptor, SignalSample, SignalSchema
 from .sources import IteratorSource
@@ -158,6 +158,8 @@ class SimulatorSource(IteratorSource):
         )
         if not isinstance(realtime, bool):
             raise ValueError("realtime must be boolean")
+        if duration_ns is None and not realtime:
+            raise ValueError("An unlimited simulator requires realtime pacing")
         if not callable(now_ns) or (wait is not None and not callable(wait)):
             raise TypeError("now_ns and wait must be callable")
         self._realtime, self._now, self._wait = realtime, now_ns, wait
@@ -265,16 +267,21 @@ class SimulatorSource(IteratorSource):
                 windows = signal.loss if lost else signal.stale
                 if any(start == sample_index for start, _ in windows):
                     yield SourceEvent(
-                        SourceEventKind.ERROR,
+                        SourceEventKind.HEALTH,
                         self.source_id,
-                        error=SourceError(
-                            "simulated_loss" if lost else "simulated_stale",
-                            "Scheduled measurements lost" if lost else "Signal intentionally stale",
-                            True,
-                            {
-                                "signal_id": descriptor.identifier,
-                                "timestamp_ns": self._start + offset,
-                            },
+                        health=replace(
+                            self.health(),
+                            last_error=SourceError(
+                                "simulated_loss" if lost else "simulated_stale",
+                                "Scheduled measurements lost"
+                                if lost
+                                else "Signal intentionally stale",
+                                True,
+                                {
+                                    "signal_id": descriptor.identifier,
+                                    "timestamp_ns": self._start + offset,
+                                },
+                            ),
                         ),
                     )
             else:
@@ -302,8 +309,8 @@ class SimulatorSource(IteratorSource):
             heappush(schedule, (next_offset, index, next_index))
 
     def health_for_heartbeat(self) -> SourceHealth:
-        """A scheduled heartbeat; persistent health separately includes queue stats."""
-        return SourceHealth(SourceState.RUNNING, dropped_records=self.simulator_stats.lost)
+        """Report injected loss and queue loss consistently in scheduled health."""
+        return self.health()
 
 
 def example_signals(

@@ -139,7 +139,7 @@ def test_sample_value_must_match_known_type_and_shape(kind, shape, value) -> Non
         {"identifier": " a.x"},
         {"identifier": "a..x"},
         {"identifier": ""},
-        {"source_id": "bad source"},
+        {"source_id": " "},
         {"device_id": ""},
         {"display_name": " "},
         {"path": ()},
@@ -207,7 +207,7 @@ def test_clock_domains_preserve_signed_precise_times_without_wire_width_assumpti
         {"unit": "Pa unit"},
         {"unit": 3},
         {"timestamp_domain": " "},
-        {"source_id": "BAD"},
+        {"source_id": ""},
         {"extra": {"value": 0}},
     ],
 )

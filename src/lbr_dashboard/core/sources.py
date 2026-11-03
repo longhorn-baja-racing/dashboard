@@ -17,7 +17,7 @@ from .contracts import (
     finite_timeout,
 )
 from .lifecycle import CancellationRequested, CancellationToken
-from .signals import SignalSchema, _validate_identifier
+from .signals import SignalSchema, _require_text
 
 
 class _RunCancellation(CancellationToken):
@@ -61,7 +61,7 @@ class IteratorSource:
         capacity: int = 128,
         publish_timeout: float = 0.05,
     ) -> None:
-        self._source_id = _validate_identifier(source_id, "source_id")
+        self._source_id = _require_text(source_id, "source_id")
         if not isinstance(schema, SignalSchema):
             raise TypeError("schema must be SignalSchema")
         if any(item.source_id != source_id for item in schema.signals):
@@ -72,7 +72,8 @@ class IteratorSource:
         self._descriptors = {item.identifier: item for item in schema.signals}
         self._factory = factory
         self._capabilities = SourceCapabilities(is_live, False, False, capacity)
-        self._timeout = finite_timeout(publish_timeout)
+        timeout = finite_timeout(publish_timeout)
+        self._timeout = timeout if is_live else None
         self._events = SourceEventQueue(capacity)
         self._state = SourceState.CREATED
         self._lock = RLock()
@@ -179,16 +180,17 @@ class IteratorSource:
                 self._cancel.raise_if_cancelled()
                 self._validate(event)
                 self._publish(event)
-        except CancellationRequested:
-            reason = "cancelled"
         except _ReportedFailure as error:
             reason, failure = "failed", error.error
-        except Exception as error:
-            reason = "failed"
-            failure = SourceError(
-                "open_failed" if self._iterator is None else "read_failed",
-                str(error) or type(error).__name__,
-            )
+        except BaseException as error:
+            if isinstance(error, CancellationRequested) and self._cancel.is_cancelled:
+                reason = "cancelled"
+            else:
+                reason = "failed"
+                failure = SourceError(
+                    "open_failed" if self._iterator is None else "read_failed",
+                    str(error) or type(error).__name__,
+                )
         finally:
             self._finish(reason, failure)
 
@@ -206,11 +208,16 @@ class IteratorSource:
                 self._error = event.error
             if not event.error.recoverable:
                 raise _ReportedFailure(event.error)
-        elif event.kind is not SourceEventKind.HEALTH:
+        elif event.kind is SourceEventKind.HEALTH:
+            assert event.health is not None
+            if event.health.last_error is not None:
+                with self._lock:
+                    self._error = event.health.last_error
+        else:
             raise ValueError("iterator may yield only record, health or error events")
 
-    def _publish(self, event: SourceEvent) -> None:
-        self.events.publish(event, timeout=self._timeout, cancellation=self._cancel)
+    def _publish(self, event: SourceEvent) -> bool:
+        return self.events.publish(event, timeout=self._timeout, cancellation=self._cancel)
 
     def _finish(self, reason: str, failure: SourceError | None = None) -> None:
         iterator, self._iterator = self._iterator, None
@@ -225,13 +232,17 @@ class IteratorSource:
         with self._lock:
             if failure is not None:
                 self._error = failure
-            self._terminal = reason
 
         if failure is not None:
             self._publish(SourceEvent(SourceEventKind.ERROR, self.source_id, error=failure))
-        self._publish(SourceEvent(SourceEventKind.END_OF_STREAM, self.source_id, reason=reason))
+        delivered = self._publish(
+            SourceEvent(SourceEventKind.END_OF_STREAM, self.source_id, reason=reason)
+        )
+        if not delivered and self._cancel.is_cancelled and reason == "complete":
+            reason = "cancelled"
         self.events.close()
         with self._lock:
+            self._terminal = reason
             self._state = (
                 SourceState.FAILED
                 if reason == "failed"
