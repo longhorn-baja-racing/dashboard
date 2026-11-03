@@ -302,12 +302,23 @@ def add_bundle_files(bundle: Path, info: dict[str, str | int]) -> None:
     )
 
 
-def unused_qt_files(bundle: Path) -> list[Path]:
+def files_in(folder: Path) -> list[Path]:
+    """Every file below ``folder``, ordered by exact relative name on every OS.
+
+    Windows paths compare case-insensitively, so sorting ``Path`` objects would
+    give a different order (and a different ZIP) than on Linux.
+    """
+
     return sorted(
-        path
-        for path in bundle.rglob("*")
-        if path.is_file() and UNUSED_QT.search(path.relative_to(bundle).as_posix())
+        (path for path in folder.rglob("*") if path.is_file()),
+        key=lambda path: path.relative_to(folder).as_posix(),
     )
+
+
+def unused_qt_files(bundle: Path) -> list[Path]:
+    return [
+        path for path in files_in(bundle) if UNUSED_QT.search(path.relative_to(bundle).as_posix())
+    ]
 
 
 def prune_unused_qt(bundle: Path) -> list[str]:
@@ -325,7 +336,7 @@ def write_zip(source: Path, destination: Path, top: str, epoch: int) -> Path:
 
     stamp = time.gmtime(max(epoch, ZIP_EPOCH))[:6]
     destination.parent.mkdir(parents=True, exist_ok=True)
-    files = sorted(path for path in source.rglob("*") if path.is_file())
+    files = files_in(source)
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in files:
             relative = path.relative_to(source).as_posix()
