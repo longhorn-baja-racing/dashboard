@@ -29,7 +29,7 @@ classifiers = [
 [project.optional-dependencies]
 dev = [
     "pyright>=1.1,<2",
-    "pytest>=8,<9",
+    "pytest>=8,<10",
     "pytest-cov>=7,<8",
     "pytest-qt>=4,<5",
     "pytest-timeout>=2,<3",
