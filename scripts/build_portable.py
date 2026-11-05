@@ -331,6 +331,24 @@ def prune_unused_qt(bundle: Path) -> list[str]:
     return removed
 
 
+def prune_system_icu(bundle: Path, platform_name: str | None = None) -> list[str]:
+    """Keep Qt's Windows ICU imports bound to the operating-system library.
+
+    PyInstaller can resolve this unversioned name from an unrelated PATH entry
+    (for example Poppler). That DLL exports versioned ICU symbols and shadows
+    System32's DLL, making QtWidgets fail to import in the frozen application.
+    """
+
+    if (platform_name or sys.platform) != "win32":
+        return []
+    removed = []
+    for path in files_in(bundle):
+        if path.name.lower() == "icuuc.dll":
+            removed.append(path.relative_to(bundle).as_posix())
+            path.unlink()
+    return removed
+
+
 def write_zip(source: Path, destination: Path, top: str, epoch: int) -> Path:
     """Zip ``source`` under ``top/`` with sorted names and one fixed timestamp."""
 
@@ -370,6 +388,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     removed = prune_unused_qt(bundle)
     if removed:
         print(f"removed {len(removed)} unused Qt files: " + ", ".join(removed))
+    system_icu = prune_system_icu(bundle)
+    if system_icu:
+        print("removed DLLs shadowing Windows ICU: " + ", ".join(system_icu))
     info = build_info(version, epoch)
     add_bundle_files(bundle, info)
 

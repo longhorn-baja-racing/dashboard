@@ -59,6 +59,10 @@ Properties > Details tab shows the right version.
   libraries they need, and the smoke test proves the app runs without them.
   This keeps a Chromium engine out of the ZIP, which matters since PySide6
   6.12 also installs QtWebEngine (see #119).
+- **Windows ICU:** Qt uses Windows' system `icuuc.dll`. An unrelated copy from
+  a PATH entry (for example Poppler) can have incompatible exports, even though
+  the filename matches. The build removes bundled copies of that unversioned
+  DLL, and the smoke layout check rejects them before launching the executable.
 - **Notices:** `scripts/collect_notices.py` (#106) copies the license files of
   every runtime dependency and the Python runtime into `notices/`. The build
   adds the PyInstaller bootloader's license, since the bootloader is part of

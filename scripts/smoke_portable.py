@@ -120,6 +120,10 @@ def check_layout(app_dir: Path, version: str, platform_tag: str) -> list[str]:
     unused = sorted(p.name for p in app_dir.rglob("*") if p.is_file() and UNUSED_QT.search(p.name))
     if unused:
         problems.append("unused Qt modules bundled: " + ", ".join(unused))
+    if platform_tag.startswith("windows") and any(
+        path.name.lower() == "icuuc.dll" for path in app_dir.rglob("*") if path.is_file()
+    ):
+        problems.append("bundled icuuc.dll shadows the Windows system library required by Qt")
     return problems
 
 

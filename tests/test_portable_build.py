@@ -134,6 +134,20 @@ def test_unused_qt_files_and_their_plugins_are_pruned(tmp_path: Path) -> None:
     assert build.prune_unused_qt(bundle) == []
 
 
+def test_windows_icu_collision_is_rejected_and_removed(tmp_path: Path) -> None:
+    bundle = fake_bundle(tmp_path / "bundle")
+    collision = bundle / "_internal" / "ICUUC.dll"
+    collision.write_bytes(b"unrelated PATH library with incompatible exports")
+    assert any("shadows" in item for item in smoke.check_layout(bundle, "0.1.0", "windows-x64"))
+    assert build.prune_system_icu(bundle, "win32") == ["_internal/ICUUC.dll"]
+    assert not collision.exists()
+    assert not any("shadows" in item for item in smoke.check_layout(bundle, "0.1.0", "windows-x64"))
+    assert (bundle / "_internal" / "PySide6" / "Qt6Widgets.dll").is_file()
+    collision.write_bytes(b"non-Windows ICU")
+    assert build.prune_system_icu(bundle, "linux") == []
+    assert collision.exists()
+
+
 def test_bundle_gets_license_notices_samples_and_build_info(
     no_pyinstaller: None, tmp_path: Path
 ) -> None:
@@ -181,6 +195,8 @@ def test_zip_is_sorted_rooted_and_reproducible(tmp_path: Path) -> None:
 
 def test_main_packages_an_existing_bundle(no_pyinstaller: None, tmp_path: Path) -> None:
     bundle = fake_bundle(tmp_path / "bundle")
+    if sys.platform == "win32":
+        (bundle / "_internal" / "icuuc.dll").write_bytes(b"incompatible PATH library")
     out = tmp_path / "out"
     assert build.main(["--bundle", str(bundle), "--out", str(out)]) == 0
     archives = list(out.glob("LBRDashboard-*.zip"))
@@ -188,6 +204,9 @@ def test_main_packages_an_existing_bundle(no_pyinstaller: None, tmp_path: Path) 
     checksum = archives[0].with_suffix(".zip.sha256").read_text(encoding="ascii")
     assert checksum == f"{build.sha256_of(archives[0])}  {archives[0].name}\n"
     assert not (bundle / "_internal" / "PySide6" / "Qt6Pdf.dll").exists()
+    if sys.platform == "win32":
+        with zipfile.ZipFile(archives[0]) as archive:
+            assert not any(name.lower().endswith("/icuuc.dll") for name in archive.namelist())
 
     assert build.main(["--bundle", str(tmp_path / "missing")]) == 1
 
