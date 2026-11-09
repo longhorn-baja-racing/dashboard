@@ -73,6 +73,7 @@ class SourceController(QObject):
         window.source_picker.seek_requested.connect(lambda: self.operate("seek"))
         window.source_picker.rate_requested.connect(lambda: self.operate("rate"))
         window.left_panel.list_widget.currentRowChanged.connect(self.select)
+        window.left_panel.signal_browser.signal_selected.connect(self.select_signal)
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.poll)
@@ -304,11 +305,21 @@ class SourceController(QObject):
         if self.session is not None:
             self._render()
 
+    def select_signal(self, identifier: str) -> None:
+        if self.session is None or not identifier:
+            return
+        self._selected = next(
+            (i for i, d in enumerate(self.session.schema.signals) if d.identifier == identifier), -1
+        )
+        self._render()
+
     def _render(self) -> None:
         if self.session is None:
             return
         snapshot = self.session.snapshot()
         descriptors = snapshot.schema.signals
+        browser = self.window.left_panel.signal_browser
+        previous_id = browser.selected_id
         if self._displayed_schema != snapshot.schema:
             self._displayed_schema = snapshot.schema
             labels = [
@@ -318,13 +329,31 @@ class SourceController(QObject):
             self.window.left_panel.list_widget.blockSignals(True)
             self.window.left_panel.set_columns(labels)
             self._selected = next(
-                (i for i, d in enumerate(descriptors) if d.data_type == "numeric"), 0
+                (i for i, d in enumerate(descriptors) if d.identifier == previous_id),
+                next((i for i, d in enumerate(descriptors) if d.data_type == "numeric"), 0),
             )
             self.window.left_panel.list_widget.setCurrentRow(self._selected)
             self.window.left_panel.list_widget.blockSignals(False)
+        availability = {
+            identifier: (
+                records[-1].sample.available,
+                records[-1].sample.quality
+                or (
+                    "Latest reading available"
+                    if records[-1].sample.available
+                    else "Missing reading"
+                ),
+            )
+            for identifier, records in snapshot.series.items()
+            if records
+        }
+        browser.refresh(snapshot.schema, availability)
+        self.window.left_panel.list_widget.hide()
+        browser.show()
         if not 0 <= self._selected < len(descriptors):
             return
         descriptor = descriptors[self._selected]
+        browser.select_id(descriptor.identifier)
         records = snapshot.series[descriptor.identifier]
         # One selected signal, at most 1,000 visible raw records; original session stays intact.
         rows = [
