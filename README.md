@@ -5,9 +5,12 @@ the first-class target; macOS and Linux are supported development targets.
 
 ## Current status
 
-The app currently launches a desktop shell and opens legacy CSV files through
-**File → Open**. CSV decoding lives outside Qt widgets. The tabular `LogSession`
-is a compatibility model, not the planned mixed-rate telemetry session model.
+The dashboard's **Telemetry source** panel selects a timestamp_ms CSV preset or
+a deterministic finite/live simulator. Both feed the generic source/session
+model. It shows source identity, health and capabilities, and supports
+disconnect and retry. Follow the [source-picker walkthrough](docs/source-picker.md)
+to test switching sources without hardware. **File → Open** retains the legacy
+CSV table loader; its tabular `LogSession` remains a compatibility model.
 Native SD-log replay, USB live telemetry, workspaces and installers are planned
 in the [issue roadmap](https://github.com/longhorn-baja-racing/lbr-dashboard/issues).
 Closed, unmerged PRs are not completed features.
