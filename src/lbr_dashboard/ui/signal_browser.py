@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 
 from PySide6.QtCore import QMimeData, QModelIndex, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QBrush, QColor, QPalette, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
@@ -69,6 +69,26 @@ class SignalBrowser(QWidget):
         self.search.setAccessibleName("Search signals")
         self.search.setClearButtonEnabled(True)
         self.tree = QTreeView()
+        palette = self.tree.palette()
+        for group in (
+            QPalette.ColorGroup.Active,
+            QPalette.ColorGroup.Inactive,
+            QPalette.ColorGroup.Disabled,
+        ):
+            for role, color in (
+                (QPalette.ColorRole.Base, "#2e2e2e"),
+                (QPalette.ColorRole.Text, "#f2f2f2"),
+                (QPalette.ColorRole.Highlight, "#174a73"),
+                (QPalette.ColorRole.HighlightedText, "#ffffff"),
+            ):
+                palette.setColor(group, role, QColor(color))
+        self.tree.setPalette(palette)
+        self.tree.setStyleSheet(
+            "QTreeView { background-color: #2e2e2e; color: #f2f2f2; "
+            "selection-background-color: #174a73; selection-color: #ffffff; }"
+            "QTreeView::item:selected { background-color: #174a73; color: #ffffff; }"
+            "QHeaderView::section { background-color: #333333; color: #f2f2f2; }"
+        )
         self.tree.setAccessibleName("Telemetry signal hierarchy")
         self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tree.setDragEnabled(True)
@@ -128,6 +148,7 @@ class SignalBrowser(QWidget):
                     if path not in self._groups:
                         group = QStandardItem(segment)
                         group.setEditable(False)
+                        group.setForeground(QBrush(QColor("#f2f2f2")))
                         group.setDragEnabled(False)
                         group.setData(" / ".join(path), SEARCH_ROLE)
                         parent.appendRow(group)
@@ -187,7 +208,7 @@ class SignalBrowser(QWidget):
             )
             for item in row:
                 item.setToolTip(reason)
-                item.setForeground(QBrush(QColor("#999999")) if available is False else QBrush())
+                item.setForeground(QBrush(QColor("#b8b8b8" if available is False else "#f2f2f2")))
                 item.setDragEnabled(available is True)
         self._restore_selection()
 
