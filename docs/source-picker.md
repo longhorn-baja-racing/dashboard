@@ -39,10 +39,13 @@ text. Empty cells remain unavailable, including in text columns. Non-finite
 numeric spellings are errors rather than zeros.
 
 Limits are 16 MiB, 20,000 data rows, 64 signals and 200,000 samples. Full finite
-history is retained in the session; the selected plot displays the latest 1,000
-samples and its table displays the latest 100. Live history is bounded to
-1,000 samples per signal. Times in the table remain original integer nanoseconds;
-the plotted seconds are relative to that signal's first retained reading.
+history is retained in the session. Use **Fit plot** for an overview, then pan or
+zoom to inspect a time window. Dense windows draw a bounded selection of original
+points, retaining narrow peaks and breaking lines at unavailable readings.
+Irregular intervals alone do not imply missing readings. The table displays the
+latest 100 original records. Live history is bounded to 1,000 samples per signal.
+The table shows original integer nanoseconds and the plot uses seconds relative
+to the first reading when that signal's view was opened.
 The raw table is read-only; changing recorded measurements is not a source action.
 
 The arbitrary mapping workflow in #31 remains separate. This preset does not

@@ -60,7 +60,7 @@ class SourcePicker(QGroupBox):
         layout.addLayout(operations)
         hint = QLabel(
             "Disconnect releases the source and keeps readings for inspection. "
-            "Plot: latest 1,000 selected readings; table: latest 100. "
+            "Use Fit plot for the full recording. Table: latest 100 readings. "
             "Live history is limited to 1,000 readings per signal."
         )
         hint.setWordWrap(True)

@@ -127,7 +127,7 @@ class ReplayController(QObject):
         self.window.replay_bar.display(
             self.clock.snapshot(), ready=self._ready, live=self._live, busy=self._busy
         )
-        # The plot uses time relative to the selected signal's first retained record.
+        # The plot keeps its origin stable while the live retention window moves.
         frame = self.clock.snapshot()
         view = self._snapshot
         selected = self.window.left_panel.signal_browser.selected_id
@@ -137,7 +137,8 @@ class ReplayController(QObject):
             if view
             else None
         )
-        plot = self.window.right_panel.plot_widget.getPlotItem()
+        panel = self.window.right_panel
+        plot = panel.plot_widget.getPlotItem()
         if self.cursor is not None and self.cursor.scene() is None:
             self.cursor = None
         aligned = (
@@ -153,11 +154,17 @@ class ReplayController(QObject):
             )
             == frame.reference[1:]
         )
-        if records and aligned and frame.selected_ns is not None and plot is not None:
+        if (
+            records
+            and aligned
+            and frame.selected_ns is not None
+            and plot is not None
+            and panel.time_plot.identity == (self._session, selected)
+        ):
             if self.cursor is None:
                 self.cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("#ffcc00", width=2))
                 plot.addItem(self.cursor, ignoreBounds=True)
-            self.cursor.setValue((frame.selected_ns - records[0].sample.timestamp_ns) / 1e9)
+            self.cursor.setValue((frame.selected_ns - panel.time_plot.origin_ns) / 1e9)
             self.cursor.show()
         elif self.cursor is not None:
             self.cursor.hide()
