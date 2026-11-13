@@ -120,7 +120,7 @@ def test_keyboard_shortcuts_and_clamping(transport, qtbot):
     assert owner.replay.clock.snapshot().mode is PlaybackMode.PLAYING
     qtbot.keyClick(window, Qt.Key.Key_Space)
     assert owner.replay.clock.snapshot().mode is PlaybackMode.PAUSED
-    qtbot.keyClick(window, Qt.Key.Key_Right)
+    qtbot.keyClick(window, Qt.Key.Key_Right, Qt.KeyboardModifier.KeypadModifier)
     assert owner.replay.clock.snapshot().selected_ns == 1_000_000_000
     qtbot.keyClick(window, Qt.Key.Key_End)
     assert owner.replay.clock.snapshot().selected_ns == 3_000_000_000
@@ -160,7 +160,7 @@ def test_shortcuts_do_not_steal_editing_or_widget_navigation(transport, qtbot, k
     widget.setFocus()
     owner.replay.seek_slider(5000)
     before = owner.replay.clock.snapshot()
-    # Exercise the filter directly as well as actual text entry.
+    # From the middle of the recording, a stolen seek key would change the clock.
     if kind not in {"button", "tree", "spin", "combo"}:
         qtbot.keyClicks(widget, "hello world")
         assert isinstance(widget, (QLineEdit, QTextEdit, QPlainTextEdit))
@@ -168,6 +168,8 @@ def test_shortcuts_do_not_steal_editing_or_widget_navigation(transport, qtbot, k
         assert "hello world" in text
     qtbot.keyClick(widget, Qt.Key.Key_Left)
     qtbot.keyClick(widget, Qt.Key.Key_Home)
+    qtbot.keyClick(widget, Qt.Key.Key_Right)
+    qtbot.keyClick(widget, Qt.Key.Key_End)
     assert owner.replay.clock.snapshot() == before
 
 
