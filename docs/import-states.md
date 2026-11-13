@@ -54,13 +54,13 @@ use the new validated asynchronous path; they do not raise hidden Qt-slot errors
 | Broken quotes, inconsistent interior row widths or extra fields | Malformed-file error; previous session retained |
 | Empty lines / short final row | Empty lines skipped; short final row dropped with a visible warning |
 | Duplicate or empty headers | Ambiguous-name error; no incorrect column lookup |
-| Invalid/missing/non-finite timestamp_ms | Time-column error; no fabricated time or blanked prior graph |
+| Invalid/missing/non-finite timestamp_ms | Affected rows stay in the table and are skipped in time plots with a warning. If no usable timestamp remains, the import reports an error and preserves the prior graph. |
 | NaN/infinite value outside the time column | Missing in plots, warning shown; original text retained in table |
 | No timestamp_ms column | Visible sample-index warning; no inferred measurement unit |
 | Text/status column | Raw values retained; visible explanation that the current preview plots numeric values only |
 | Duplicate/out-of-order finite times | Original row order and values retained; no sorting or timestamp rewriting |
 | UTF-8 BOM / quoted commas / empty numeric cells / zero | Supported; originals unchanged, empty remains missing and zero remains zero |
-| Non-.csv extension | Unsupported-file explanation |
+| File extension | Accept UTF-8 comma-separated data in `.csv` or `.txt` files |
 
 No importer export or file rewrite is performed. The app's current wide CSV model
 is retained. Timestamp/unit mapping belongs to #31; simulator/source selection

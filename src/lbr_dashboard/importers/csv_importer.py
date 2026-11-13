@@ -41,7 +41,10 @@ class CsvImporter:
         while (
             width > 1
             and not headers[width - 1].strip()
-            and all(len(row) == len(headers) and not row[width - 1].strip() for row in data)
+            and all(
+                len(row) <= len(headers) and (len(row) < width or not row[width - 1].strip())
+                for row in data
+            )
         ):
             width -= 1
         return LogSession.from_rows(

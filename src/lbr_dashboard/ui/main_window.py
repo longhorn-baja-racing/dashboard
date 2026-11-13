@@ -156,7 +156,9 @@ class MainWindow(QMainWindow):
     def open_csv(self) -> None:
         """Open a CSV file and display its columns and rows."""
 
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open CSV File", "", "CSV and Text Files (*.csv *.txt)"
+        )
         if file_path:
             self.csv_requested.emit(file_path)
 

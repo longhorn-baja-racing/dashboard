@@ -60,10 +60,18 @@ def validate(session: LogSession) -> str:
             "No timestamp_ms column: showing sample index, not measurement time. "
             "For this preview, use timestamp_ms for millisecond measurement times."
         )
-    elif any(value is None or not isfinite(value) for value in time):
-        raise ValueError(
-            "timestamp_ms contains a missing, invalid or non-finite time. Fix the time column."
-        )
+    else:
+        invalid_times = sum(value is None or not isfinite(value) for value in time)
+        if invalid_times == len(time):
+            raise ValueError(
+                "timestamp_ms has no usable times. Every row has a missing, invalid or "
+                "non-finite time. Fix the time column."
+            )
+        if invalid_times:
+            warnings.append(
+                f"Skipped {invalid_times:,} rows with missing, invalid or non-finite "
+                "timestamps in time plots. Original rows remain in the table."
+            )
     unsupported = [
         name
         for index, name in enumerate(session.headers)
@@ -145,8 +153,8 @@ class ImportController(QObject):
 
         def work() -> None:
             try:
-                if path.suffix.lower() != ".csv":
-                    raise ValueError("Unsupported file type. Choose a UTF-8 .csv file.")
+                if path.suffix.lower() not in {".csv", ".txt"}:
+                    raise ValueError("Unsupported file type. Choose UTF-8 CSV data (.csv or .txt).")
                 session = self.importer.import_session(
                     path, cancelled=self.cancelled.is_set, progress=progress
                 )

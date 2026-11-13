@@ -72,6 +72,36 @@ def test_text_only_file_keeps_table_and_explains_empty_plot_selector(window, qtb
     assert not plot.listDataItems() and "No numeric readings" in plot.titleLabel.text
 
 
+def test_text_file_with_bad_timestamps_keeps_rows_and_plots_valid_samples(
+    window, qtbot, tmp_path, monkeypatch
+):
+    path = tmp_path / "logger.txt"
+    path.write_text("timestamp_ms,value\n0,10\n,20\nNaN,30\nno time,40\n15,50\n")
+
+    def choose_file(_parent, _title, _directory, file_filter):
+        assert "*.txt" in file_filter
+        return str(path), file_filter
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", choose_file)
+    qtbot.mouseClick(window.open_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.import_state == "ready")
+    assert series(window) == ((0, 15), (10, 50))
+    assert "Skipped 3 rows" in window.import_message.text()
+    table = window.right_panel.table
+    assert table.rowCount() == 5
+    assert table.item(2, 0).text() == "NaN"
+
+
+def test_trailing_separator_and_truncated_tail_are_recovered_together(window, qtbot, tmp_path):
+    path = tmp_path / "interrupted.csv"
+    path.write_text("timestamp_ms,value,\n0,10,\n15,50,\n20\n")
+    controller(window).import_controller.start(path)
+    qtbot.waitUntil(lambda: window.import_state == "ready")
+    assert series(window) == ((0, 15), (10, 50))
+    assert "Dropped a truncated final row" in window.import_message.text()
+    assert window.right_panel.table.columnCount() == 2
+
+
 @pytest.mark.parametrize(
     ("data", "reason"),
     [
