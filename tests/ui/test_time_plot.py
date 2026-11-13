@@ -73,7 +73,7 @@ def test_large_trace_keeps_narrow_extrema_and_omitted_gap_breaks(qtbot):
         SignalSample(i * 1_000_000, special.get(i, 3), available=special.get(i, 3) is not None)
         for i in range(20_000)
     )
-    before = session.snapshot()
+    expected_values = [special.get(i, 3) for i in range(20_000)]
     requests = []
     curve = plot_session(panel, session, descriptor, requests)
     x, y = points(curve)
@@ -95,7 +95,8 @@ def test_large_trace_keeps_narrow_extrema_and_omitted_gap_breaks(qtbot):
     assert math.isnan(y[x.tolist().index(1.209)])
     panel.fit_plot.click()
     assert points(curve)[0][-1] == 19.999
-    assert session.snapshot() == before
+    records = session.range(descriptor.identifier, 0, 19_999_000_000)
+    assert [record.sample.value for record in records] == expected_values
 
 
 def test_updates_keep_manual_range_and_empty_view_is_safe(qtbot):

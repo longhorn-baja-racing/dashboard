@@ -40,8 +40,9 @@ numeric spellings are errors rather than zeros.
 
 Limits are 16 MiB, 20,000 data rows, 64 signals and 200,000 samples. Full finite
 history is retained in the session. Use **Fit plot** for an overview, then pan or
-zoom to inspect a time window. Dense windows draw a bounded selection of original
-points, retaining narrow peaks and breaking lines at unavailable readings.
+zoom to inspect a time window. Finite sources show the loading state until all
+readings are ingested. Dense windows draw a bounded selection of original points,
+retaining narrow peaks and breaking lines at unavailable readings.
 Irregular intervals alone do not imply missing readings. The table displays the
 latest 100 original records. Live history is bounded to 1,000 samples per signal.
 The table shows original integer nanoseconds and the plot uses seconds relative
