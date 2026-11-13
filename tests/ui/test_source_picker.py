@@ -300,6 +300,7 @@ def test_legacy_table_load_releases_active_source(picker, qtbot, tmp_path):
     qtbot.waitUntil(lambda: owner.source is None)
     assert source.state is SourceState.CLOSED
     assert owner.session is None
+    assert "Legacy CSV table loaded" in window.source_picker.status.text()
     assert window.right_panel.table.item(0, 1).text() == "123"
 
 

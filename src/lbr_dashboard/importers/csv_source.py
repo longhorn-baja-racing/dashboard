@@ -84,7 +84,7 @@ def prepare_csv(path: Path, token: CancellationToken) -> PreparedCsv:
     time_column = headers.index("timestamp_ms")
     columns = [i for i in range(len(headers)) if i != time_column]
     if not columns or len(columns) > MAX_SIGNALS or len(data) * len(columns) > MAX_SAMPLES:
-        raise ValueError("Choose 1–64 signal columns and at most 200,000 readings.")
+        raise ValueError("Choose 1-64 signal columns and at most 200,000 readings.")
     times = []
     for number, row in enumerate(data, 2):
         token.raise_if_cancelled()

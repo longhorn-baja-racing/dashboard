@@ -74,7 +74,7 @@ def test_csv_source_values_times_duplicates_and_cleanup(tmp_path):
         ("timestamp_ms,a\n", "no readings"),
         ("time,a\n0,1\n", "exactly one timestamp_ms"),
         ("timestamp_ms,timestamp_ms,a\n0,0,1\n", "exactly one timestamp_ms"),
-        ("timestamp_ms\n0\n", "1–64"),
+        ("timestamp_ms\n0\n", "1-64"),
         ("timestamp_ms,a\n0\n", "expected 2 fields"),
         ("timestamp_ms,a\nnan,1\n", "timestamp_ms must be finite"),
         ("timestamp_ms,a\nInfinity,1\n", "timestamp_ms must be finite"),
@@ -108,7 +108,7 @@ def test_csv_filesystem_and_encoding_failures(tmp_path):
     [
         ("MAX_BYTES", 1, "timestamp_ms,a\n0,1\n", "16 MiB"),
         ("MAX_ROWS", 1, "timestamp_ms,a\n0,1\n1,2\n", "20,000"),
-        ("MAX_SIGNALS", 1, "timestamp_ms,a,b\n0,1,2\n", "1–64"),
+        ("MAX_SIGNALS", 1, "timestamp_ms,a,b\n0,1,2\n", "1-64"),
         ("MAX_SAMPLES", 1, "timestamp_ms,a\n0,1\n1,2\n", "200,000"),
     ],
 )
