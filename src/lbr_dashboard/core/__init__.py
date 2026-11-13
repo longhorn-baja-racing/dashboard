@@ -34,9 +34,14 @@ from .signals import (
     SignalSchemaError,
     SignalSeries,
 )
+from .simulator import SimulatedSignal, SimulatorSource, SimulatorStats, example_signals
 from .sources import IteratorSource
 
 __all__ = [
+    "SimulatedSignal",
+    "SimulatorSource",
+    "SimulatorStats",
+    "example_signals",
     "ClockSnapshot",
     "ClockSubscriberError",
     "PlaybackMode",
