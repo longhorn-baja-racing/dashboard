@@ -10,7 +10,7 @@ does not implement seek or rate control.
 1. Connect **Simulator - process (finite)** in the source picker.
 2. Press **Play**. The selected time advances, and a yellow time marker moves
    across the numeric plot. The time display and marker use the same clock frame.
-3. Press **Pause**, change speed (0.25×, 0.5×, 1×, 2× or 4×), then play again.
+3. Press **Pause**, change speed (0.25x, 0.5x, 1x, 2x or 4x), then play again.
    Changing speed does not rewrite the original measurements or timestamps.
 4. Drag or click the seek slider. Seeking pauses at the requested position.
    Slider arithmetic uses integer nanoseconds; the display includes the exact
@@ -19,7 +19,7 @@ does not implement seek or rate control.
 5. At the end, playback stops at the recorded bound. **Replay** starts at the
    beginning. Seeking directly to the end and pressing Play also restarts in
    one click. Source Retry creates a new session and resets replay to paused,
-   speed 1×.
+   speed 1x.
 6. Select a different signal. Selection keeps the same session clock. A cursor
    appears only for numeric/boolean scalar data with a declared matching source
    and resolved clock domain; it never implies cross-device synchronization.
@@ -49,7 +49,9 @@ When focus is on the dashboard background or plot:
 
 Text editors, the signal search box, spin boxes, combo boxes, tree/table
 navigation, buttons and the seek slider retain their normal keyboard behavior.
-Modified key combinations are not replay shortcuts.
+After using a transport button, move focus back to the plot to use the replay
+shortcuts. The keypad flag on macOS arrow keys is accepted. Other modified key
+combinations are left to the focused widget.
 
 ## Verification
 

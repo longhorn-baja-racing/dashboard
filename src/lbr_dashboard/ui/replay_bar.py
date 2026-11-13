@@ -38,7 +38,7 @@ class ReplayBar(QGroupBox):
         self.speed = QComboBox()
         self.speed.setAccessibleName("Replay speed")
         for rate in (0.25, 0.5, 1, 2, 4):
-            self.speed.addItem(f"{rate:g}×", rate)
+            self.speed.addItem(f"{rate:g}x", rate)
         self.speed.setCurrentIndex(2)
         self.time = QLabel("No replay data")
         self.time.setTextFormat(Qt.TextFormat.PlainText)
