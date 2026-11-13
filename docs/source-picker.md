@@ -3,20 +3,20 @@
 Start the dashboard on Windows with `uv run --locked lbr-dashboard`. The
 **Telemetry source** panel is part of the main dashboard.
 
-1. Choose **Simulator — process (finite)** and press **Open CSV / Connect**.
+1. Choose **Simulator - process (finite)** and press **Open CSV / Connect**.
    The seeded three-second recording loads without waiting three seconds.
    Select pressure, temperature, or status on the left. Numeric values plot
    against measurement time; structured status values appear in the table.
-2. Choose **Simulator — motion (finite)** and connect. The previous source
+2. Choose **Simulator - motion (finite)** and connect. The previous source
    closes before the new one starts. Signal names, units, types and values
    come from the selected adapter's schema.
 3. **Retry / Restart** creates a fresh run of the last requested source. The
    finite simulators use seed 7, so retry gives the same readings.
-4. Choose **Simulator — process (live)** to watch new readings arrive. Press
+4. Choose **Simulator - process (live)** to watch new readings arrive. Press
    **Disconnect** to cancel and release its worker. Readings remain available
    for inspection, as stated in the panel. Closing the window also cancels and
    waits for cleanup without blocking the GUI thread.
-5. Choose **CSV replay — timestamp_ms preset**, then connect and select
+5. Choose **CSV replay - timestamp_ms preset**, then connect and select
    `sample_data/sample_baja_log.csv` or your own file in that explicit preset.
    Loading happens on a worker. Disconnect cancels preparation. A failed open
    reports a reason and leaves the previous source and readings intact.

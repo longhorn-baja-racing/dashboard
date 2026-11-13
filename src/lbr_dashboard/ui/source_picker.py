@@ -23,14 +23,14 @@ class SourcePicker(QGroupBox):
     def __init__(self) -> None:
         super().__init__("Telemetry source")
         self.choices = QComboBox()
-        self.choices.addItem("CSV replay — timestamp_ms preset", "csv")
-        self.choices.addItem("Simulator — process (finite)", "process")
-        self.choices.addItem("Simulator — motion (finite)", "motion")
-        self.choices.addItem("Simulator — process (live)", "live")
+        self.choices.addItem("CSV replay - timestamp_ms preset", "csv")
+        self.choices.addItem("Simulator - process (finite)", "process")
+        self.choices.addItem("Simulator - motion (finite)", "motion")
+        self.choices.addItem("Simulator - process (live)", "live")
         self.connect_button = QPushButton("Open CSV / Connect")
         self.disconnect_button = QPushButton("Disconnect")
         self.retry_button = QPushButton("Retry / Restart")
-        self.status = QLabel("Idle — choose a CSV or fictional simulator. No hardware connected.")
+        self.status = QLabel("Idle - choose a CSV or fictional simulator. No hardware connected.")
         self.status.setWordWrap(True)
         self.capabilities = QLabel("Capabilities will appear when a source is selected.")
         self.capabilities.setWordWrap(True)
@@ -39,7 +39,7 @@ class SourcePicker(QGroupBox):
         for label in (self.status, self.capabilities, self.controls):
             label.setTextFormat(Qt.TextFormat.PlainText)
         self.seek_button = QPushButton("Source: seek to first reading")
-        self.rate_button = QPushButton("Source: set rate ×2")
+        self.rate_button = QPushButton("Source: set rate to 2 Hz")
         self._busy = False
         row = QHBoxLayout()
         for widget in (

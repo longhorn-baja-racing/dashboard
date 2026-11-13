@@ -7,7 +7,7 @@ does not implement seek or rate control.
 
 ## Try it
 
-1. Connect **Simulator — process (finite)** in the source picker.
+1. Connect **Simulator - process (finite)** in the source picker.
 2. Press **Play**. The selected time advances, and a yellow time marker moves
    across the numeric plot. The time display and marker use the same clock frame.
 3. Press **Pause**, change speed (0.25×, 0.5×, 1×, 2× or 4×), then play again.
@@ -23,7 +23,7 @@ does not implement seek or rate control.
 6. Select a different signal. Selection keeps the same session clock. A cursor
    appears only for numeric/boolean scalar data with a declared matching source
    and resolved clock domain; it never implies cross-device synchronization.
-7. Connect **Simulator — process (live)**. Live-follow tracks the latest recorded
+7. Connect **Simulator - process (live)**. Live-follow tracks the latest recorded
    timestamp. Pause detaches from the live head while ingestion continues.
    **Follow live** rejoins it. Speed and seek are disabled for live input.
 

@@ -27,6 +27,7 @@ class CsvLoader(Protocol):
 class SourceOwner(Protocol):
     def close(self) -> bool: ...
     def release_for_legacy(self) -> None: ...
+    def has_session(self) -> bool: ...
 
 
 class MainWindow(QMainWindow):
@@ -89,6 +90,8 @@ class MainWindow(QMainWindow):
     def _select_column(self, column_index: int) -> None:
         """Highlight and plot the selected column, including the first selection."""
 
+        if self.source_owner is not None and self.source_owner.has_session():
+            return
         self.right_panel.highlight_column(column_index)
         if column_index < 0:
             return
