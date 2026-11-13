@@ -21,6 +21,7 @@ from .core import (
     example_signals,
 )
 from .importers.csv_source import prepare_csv
+from .replay_controller import ReplayController
 from .ui.main_window import MainWindow
 
 
@@ -56,6 +57,7 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
+        self.replay = ReplayController(window)
         for family in ("process", "motion", "live"):
 
             def prepare(token, family=family):
@@ -121,6 +123,7 @@ class SourceController(QObject):
 
         self._preparing = BackgroundService(work)
         self._preparing.start()
+        self.replay.set_busy()
         self._present()
 
     def retry(self) -> None:
@@ -182,6 +185,7 @@ class SourceController(QObject):
     def _begin_release(self) -> None:
         if self._releasing:
             return
+        self.replay.set_busy()
         self._releasing = True
         self._release_started = monotonic()
         if self.source is not None:
@@ -225,6 +229,7 @@ class SourceController(QObject):
             self._present()
 
     def _poll(self) -> None:
+        replay_snapshot = None
         if (
             self._preparing is not None
             and self._preparation_cancel_started is not None
@@ -277,10 +282,29 @@ class SourceController(QObject):
         ):
             self.session.ingest_source(self.source, limit=512)
             snapshot = self.session.snapshot()
+            replay_snapshot = snapshot
             if snapshot.revision != self._revision:
                 self._revision = snapshot.revision
                 self._render()
             self._finished_rendered = self.source.join(0) and self.source.events.stats.buffered == 0
+        self.replay.update(
+            self.session,
+            snapshot=replay_snapshot,
+            live=self.source.capabilities.is_live if self.source is not None else None,
+            ready=(
+                self.source is None or self._finished_rendered or self.source.capabilities.is_live
+            ),
+            connected=(
+                self.source is not None
+                and self.source.state
+                in {
+                    SourceState.OPEN,
+                    SourceState.OPENING,
+                    SourceState.RUNNING,
+                }
+            ),
+            busy=self._preparing is not None or self._releasing or self._closing,
+        )
         self._present()
         if (
             self._closing
@@ -320,6 +344,7 @@ class SourceController(QObject):
         self._selected = index
         if self.session is not None:
             self._render()
+            self.replay.present()
 
     def select_signal(self, identifier: str) -> None:
         if self.session is None or not identifier:
@@ -328,6 +353,7 @@ class SourceController(QObject):
             (i for i, d in enumerate(self.session.schema.signals) if d.identifier == identifier), -1
         )
         self._render()
+        self.replay.present()
 
     def _render(self) -> None:
         if self.session is None:
