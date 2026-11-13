@@ -84,7 +84,6 @@ def test_text_only_file_keeps_table_and_explains_empty_plot_selector(window, qtb
         (b"timestamp_ms,value\n,1\n", "missing"),
         (b"timestamp_ms,value\n0,\xff\n", "UTF-8"),
         (b'timestamp_ms,value\n0,"unclosed\n', "quoting"),
-        (b"timestamp_ms,same,same\n0,1,2\n", "Duplicate"),
         (b"timestamp_ms,\n0,1\n", "no name"),
     ],
 )
@@ -227,6 +226,19 @@ def test_validation_timestamp_order_is_not_rewritten():
     )
     assert validate(session) == ""
     assert session.numeric_column("timestamp_ms") == (10, -5, 10)
+
+
+def test_import_preserves_duplicate_columns_and_trims_empty_trailing_field(tmp_path):
+    from lbr_dashboard.import_controller import validate
+    from lbr_dashboard.importers.csv_importer import CsvImporter
+
+    path = tmp_path / "logger.csv"
+    path.write_text("timestamp_ms,rpm,rpm,\n0,100,900,\n20,110,910,\n")
+    session = CsvImporter().import_session(path)
+    assert not validate(session)
+    assert session.headers == ("timestamp_ms", "rpm", "rpm")
+    assert session.numeric_column(1) == (100, 110)
+    assert session.numeric_column(2) == (900, 910)
 
 
 def controller(window) -> DashboardController:

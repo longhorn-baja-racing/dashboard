@@ -45,8 +45,6 @@ def validate(session: LogSession) -> str:
         raise ValueError("The CSV has no data rows. Choose a CSV containing a header and readings.")
     if any(not name.strip() for name in session.headers):
         raise ValueError("A column has no name. Give every column a nonempty header.")
-    if len(set(session.headers)) != len(session.headers):
-        raise ValueError("Duplicate column names are ambiguous. Give each column a distinct name.")
     for index, row in enumerate(session.rows, 2):
         if len(row) != len(session.headers):
             raise ValueError(
@@ -68,8 +66,8 @@ def validate(session: LogSession) -> str:
         )
     unsupported = [
         name
-        for name in session.headers
-        if all(value is None for value in session.numeric_column(name) or ())
+        for index, name in enumerate(session.headers)
+        if all(value is None for value in session.numeric_column(index) or ())
     ]
     if unsupported:
         warnings.append(
@@ -140,7 +138,7 @@ class ImportController(QObject):
         self.cancelled.clear()
         self.path = path
         self.rows_read = 0
-        self.window.set_import_state("loading", "Reading CSVâ€¦ Previous data remains available.")
+        self.window.set_import_state("loading", "Reading CSV... Previous data remains available.")
 
         def progress(count: int) -> None:
             self.rows_read = count
@@ -179,14 +177,14 @@ class ImportController(QObject):
 
     def cancel(self) -> None:
         self.cancelled.set()
-        self.window.import_message.setText("Cancelling importâ€¦ Previous data remains available.")
+        self.window.import_message.setText("Cancelling import... Previous data remains available.")
 
     def poll(self) -> None:
         if self.worker is None:
             return
         if self.worker.is_alive():
             if not self.cancelled.is_set():
-                self.window.import_message.setText(f"Reading CSVâ€¦ {self.rows_read:,} rows read.")
+                self.window.import_message.setText(f"Reading CSV... {self.rows_read:,} rows read.")
             return
         self.worker.join()
         self.worker = None

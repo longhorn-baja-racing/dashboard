@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
         )
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
-        self.right_panel.plot_widget.setTitle("No data loaded — open CSV or try demo data")
+        self.right_panel.plot_widget.setTitle("No data loaded - open CSV or try demo data")
         self.right_panel.table.setEditTriggers(self.right_panel.table.EditTrigger.NoEditTriggers)
 
     def attach_controller(self, controller: CsvLoader) -> None:
@@ -194,7 +194,7 @@ class MainWindow(QMainWindow):
         self._select_column(selected)
         if not columns:
             self.right_panel.plot_widget.setTitle(
-                "No numeric readings to plot — view the raw data in the table"
+                "No numeric readings to plot - view the raw data in the table"
             )
         self.source_label.setText("Local CSV loaded. No live sensor connection.")
 

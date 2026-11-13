@@ -36,4 +36,14 @@ class CsvImporter:
             return LogSession((), (), {})
         if cancelled():
             raise InterruptedError("CSV import cancelled")
-        return LogSession.from_rows(rows[0], tuple(rows[1:]))
+        headers, *data = rows
+        width = len(headers)
+        while (
+            width > 1
+            and not headers[width - 1].strip()
+            and all(len(row) == len(headers) and not row[width - 1].strip() for row in data)
+        ):
+            width -= 1
+        return LogSession.from_rows(
+            headers[:width], tuple(row[:width] if width < len(headers) else row for row in data)
+        )

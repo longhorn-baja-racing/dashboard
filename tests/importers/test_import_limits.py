@@ -10,7 +10,8 @@ from lbr_dashboard.importers.csv_importer import CsvImporter
 
 def test_cancel_mid_read_never_returns_partial_session(tmp_path):
     path = tmp_path / "cancel.csv"
-    path.write_text("timestamp_ms,value\n" + "0,2\n" * 400)
+    original = "timestamp_ms,value\n" + "0,2\n" * 400
+    path.write_text(original)
     cancelled = Event()
 
     def progress(count):
@@ -19,7 +20,7 @@ def test_cancel_mid_read_never_returns_partial_session(tmp_path):
 
     with pytest.raises(InterruptedError):
         CsvImporter().import_session(path, cancelled=cancelled.is_set, progress=progress)
-    assert path.read_text().endswith("0,2\n")
+    assert path.read_text() == original
 
 
 def test_parser_field_limit_retains_csv_line_diagnostic(tmp_path):
