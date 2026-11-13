@@ -93,7 +93,7 @@ def test_headers_only_replace_old_rows_and_clear_plot(window: MainWindow, tmp_pa
     path = tmp_path / "headers.csv"
     _load(window, path, "timestamp_ms,rpm\n0,900\n")
     _load(window, path, "timestamp_ms,rpm\n")
-    assert window.left_panel.list_widget.count() == 2
+    assert window.left_panel.list_widget.count() == 0
     assert window.right_panel.table.rowCount() == 0
     plot = window.right_panel.plot_widget.getPlotItem()
     assert plot is not None and plot.listDataItems() == []
@@ -116,6 +116,7 @@ def test_file_dialog_failure_is_visible_and_recoverable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
+    qtbot,
 ) -> None:
     good = tmp_path / "good.csv"
     _load(window, good, "timestamp_ms,rpm\n100,900\n110,950\n")
@@ -128,6 +129,7 @@ def test_file_dialog_failure_is_visible_and_recoverable(
         QFileDialog, "getOpenFileName", lambda *args: (str(bad), "CSV Files (*.csv)")
     )
     window.open_csv()
+    qtbot.waitUntil(lambda: window.import_state != "loading")
     assert len(failures) == 1
     assert failures[0][0] == str(bad)
     assert "Could not load" in window.statusBar().currentMessage()
@@ -136,5 +138,6 @@ def test_file_dialog_failure_is_visible_and_recoverable(
         QFileDialog, "getOpenFileName", lambda *args: (str(good), "CSV Files (*.csv)")
     )
     window.open_csv()
+    qtbot.waitUntil(lambda: window.import_state != "loading")
     assert window.statusBar().currentMessage() == ""
     assert len(failures) == 1

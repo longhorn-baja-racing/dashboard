@@ -68,7 +68,9 @@ def test_time_axis_is_normalized_to_zero() -> None:
 
 @pytest.mark.parametrize("failure", ["missing", "encoding"])
 @pytest.mark.parametrize("ui_request", [False, True])
-def test_csv_load_errors_are_observable(tmp_path: Path, failure: str, ui_request: bool) -> None:
+def test_csv_load_errors_are_observable(
+    tmp_path: Path, failure: str, ui_request: bool, qtbot
+) -> None:
     application = create_application([])
     window = create_main_window()
     sample = Path(__file__).parents[2] / "sample_data" / "sample_baja_log.csv"
@@ -82,6 +84,7 @@ def test_csv_load_errors_are_observable(tmp_path: Path, failure: str, ui_request
         window.load_csv(sample)
         if ui_request:
             window.csv_requested.emit(str(path))
+            qtbot.waitUntil(lambda: window.import_state != "loading")
             assert len(failures) == 1
             assert failures[0][0] == str(path)
             assert failures[0][1]

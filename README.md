@@ -12,6 +12,11 @@ Native SD-log replay, USB live telemetry, workspaces and installers are planned
 in the [issue roadmap](https://github.com/longhorn-baja-racing/lbr-dashboard/issues).
 Closed, unmerged PRs are not completed features.
 
+The initial screen now offers Open CSV and a static fictional demo. Interactive
+imports show loading/cancellation and nonmodal error details while preserving
+previous data on failure. See [import behavior and validation](docs/import-states.md)
+for supported legacy CSV inputs, preview bounds, and remaining mapping/source integration.
+
 ## Project direction
 
 - One schema describes arbitrary signals, each with its own sample times, units,
