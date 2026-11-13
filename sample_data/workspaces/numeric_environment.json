@@ -1,0 +1,76 @@
+{
+  "format": "lbr-dashboard-workspace",
+  "version": 1,
+  "name": "Environment numeric example",
+  "description": "Two numeric signals on separate axes plus their current values. Signal IDs are illustrative and match the column names of the generic environment fixture.",
+  "widgets": [
+    {
+      "id": "env-plot",
+      "type": "time_plot",
+      "title": "Temperature and pressure",
+      "axes": [
+        {
+          "id": "temperature",
+          "side": "left",
+          "label": "Temperature",
+          "unit": "degC",
+          "range": [
+            0.0,
+            120.0
+          ]
+        },
+        {
+          "id": "pressure",
+          "side": "right",
+          "label": "Pressure",
+          "unit": "kPa"
+        }
+      ],
+      "bindings": [
+        {
+          "signal": "coolant_temp_c",
+          "label": "Coolant",
+          "color": "#e8590c",
+          "axis": "temperature"
+        },
+        {
+          "signal": "line_pressure_kpa",
+          "label": "Line pressure",
+          "color": "#1c7ed6",
+          "axis": "pressure"
+        }
+      ]
+    },
+    {
+      "id": "env-values",
+      "type": "value_cards",
+      "title": "Current values",
+      "bindings": [
+        {
+          "signal": "coolant_temp_c"
+        },
+        {
+          "signal": "line_pressure_kpa"
+        }
+      ]
+    }
+  ],
+  "layout": {
+    "kind": "split",
+    "orientation": "vertical",
+    "children": [
+      {
+        "kind": "widget",
+        "widget": "env-plot"
+      },
+      {
+        "kind": "widget",
+        "widget": "env-values"
+      }
+    ],
+    "weights": [
+      3.0,
+      1.0
+    ]
+  }
+}
