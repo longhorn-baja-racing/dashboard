@@ -138,6 +138,54 @@ def test_reorder_window_limits_late_packets() -> None:
     assert (counts.lost, counts.out_of_order, counts.resets) == (8, 1, 1)
 
 
+@pytest.mark.parametrize(
+    ("bits", "values", "lost", "duplicates", "out_of_order", "rollovers", "resets"),
+    [
+        pytest.param(8, [*range(21), *range(30)], 0, 0, 0, 0, 1, id="early-reboot-u8"),
+        pytest.param(16, [*range(21), *range(30)], 0, 0, 0, 0, 1, id="early-reboot-u16"),
+        pytest.param(8, [*range(250, 256), *range(11), *range(5)], 0, 0, 0, 1, 1, id="after-wrap"),
+        pytest.param(
+            16, [*range(100, 120), *range(105, 140)], 0, 0, 0, 0, 1, id="replay-in-window"
+        ),
+        pytest.param(16, [*range(11), 5, 11], 0, 1, 0, 0, 0, id="single-dup"),
+        pytest.param(16, [*range(11), 5, 5, 11], 0, 2, 0, 0, 0, id="dup-pair"),
+        pytest.param(16, [*range(11), 9, 10, 11], 0, 2, 0, 0, 0, id="dup-then-newest"),
+        pytest.param(16, [0, 1, 4, 2, 3, 5], 0, 0, 2, 0, 0, id="late-run-fills-loss"),
+        pytest.param(
+            8, [250, 251, 253, 254, 255, 0, 1, 1, 3, 2], 1, 1, 1, 1, 0, id="u8-mixed-wrap"
+        ),
+    ],
+)
+def test_restart_within_reorder_window(
+    bits: int,
+    values: list[int],
+    lost: int,
+    duplicates: int,
+    out_of_order: int,
+    rollovers: int,
+    resets: int,
+) -> None:
+    seq = SequenceTracker(bits)
+    _feed(seq, values)
+    counts = seq.counts()
+    assert (counts.lost, counts.duplicates, counts.out_of_order) == (lost, duplicates, out_of_order)
+    assert (counts.rollovers, counts.resets) == (rollovers, resets)
+    assert counts.packets == len(values)
+
+
+def test_reboot_reset_is_reported_at_the_successor() -> None:
+    seq = SequenceTracker(8)
+    _feed(seq, list(range(21)))
+    assert _feed(seq, [0, 1, 2, 4]) == [
+        SequenceStep.DUPLICATE,
+        SequenceStep.RESET,
+        SequenceStep.IN_ORDER,
+        SequenceStep.GAP,
+    ]
+    counts = seq.counts()
+    assert (counts.duplicates, counts.resets, counts.lost) == (0, 1, 1)
+
+
 def test_mid_stream_reset_starts_new_run() -> None:
     seq = SequenceTracker(16)
     steps = _feed(seq, [5000, 5001, 0, 1, 2])

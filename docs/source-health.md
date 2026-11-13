@@ -123,6 +123,7 @@ arithmetic (RFC 1982) against the newest number of the current run:
 | `-1` to `-reorder_window`, number is older than the run | out of order | out of order + 1 |
 | `-1` to `-reorder_window`, number already received | duplicate | duplicates + 1 |
 | further back than `reorder_window`, or exactly half the range | reset | resets + 1, a new run starts |
+| back to an already received `n`, then `n + 1` also already received | reset at `n` | duplicate for `n` taken back, resets + 1, a new run starts at `n` |
 
 - **Rollover**: a forward step that wraps past the top of the range (for
   example 255 -> 0 for 8 bits) is a rollover, counted in `rollovers`, and is
@@ -139,9 +140,17 @@ arithmetic (RFC 1982) against the newest number of the current run:
 - **Reorder window**: defaults to `min(32, 2**bits / 4)` and must be smaller
   than half the range. Only numbers within the window can be taken back as
   late arrivals; older lost numbers stay lost.
-- **Known ambiguity**: a device that restarts without a disconnect event and
-  whose counter goes back by no more than the reorder window looks like
-  duplicates. A forward jump of less than half the range is always counted
+- **Restart within the window**: a device that restarts without a disconnect
+  event shortly after start (or just after a rollover) steps back by less
+  than the reorder window, to numbers already received. The first replayed
+  number is provisionally a duplicate. When the very next packet is its
+  successor and is also an already received number behind the newest, the
+  pair is a restarted counter: the duplicate is taken back and a reset starts
+  a new run at the first replayed number. A lone repeat, a repeated pair
+  `(n, n)`, a repeat of the newest number, and late packets that fill counted
+  losses (for example `1, 4, 2, 3`) keep their classification.
+- **Known ambiguity**: a restart that sends only one number before jumping
+  ahead again still reads as a duplicate. A forward jump of less than half the range is always counted
   as loss, even if it was really a restart. Sources that can say they
   restarted should report a disconnect/connect pair.
 - `loss_fraction = lost / (lost + packets - duplicates)`.

@@ -103,6 +103,12 @@ class SequenceTracker:
       order if its number had been counted as lost (the loss is taken back),
       or out of order if it predates the start of the run, otherwise a
       duplicate. Repeating the newest number is also a duplicate.
+    - two packets in a row that both step back to numbers already received,
+      the second being the successor of the first (n, n + 1), are a counter
+      that restarted and is climbing again (for example a reboot): the run is
+      a reset starting at n, and the duplicate counted for n is taken back.
+      A lone repeat, a repeated pair (n, n) or late packets that fill counted
+      losses keep their duplicate or out-of-order classification.
     - a step backward by more than ``reorder_window`` (or by exactly half the
       modulus) is a reset: a new run starts and nothing is counted as lost.
     - after ``restart()`` (a reconnect), the next number starts a new run. It
@@ -128,6 +134,7 @@ class SequenceTracker:
         self._span = 0  # Numbers from the start of the run to the newest, capped.
         self._missing: set[int] = set()
         self._restarted = False
+        self._pending_duplicate: int | None = None  # Previous packet, if a behind duplicate.
         self._packets = self._lost = self._duplicates = 0
         self._out_of_order = self._rollovers = self._resets = 0
 
@@ -145,6 +152,8 @@ class SequenceTracker:
         if value >= self._modulus:
             raise ValueError(f"sequence {value} does not fit in {self._bits} bits")
         self._packets += 1
+        pending = self._pending_duplicate
+        self._pending_duplicate = None
         newest = self._newest
         if newest is None:
             return self._begin_run(value, SequenceStep.BASELINE)
@@ -172,7 +181,16 @@ class SequenceTracker:
             self._lost -= 1
             self._out_of_order += 1
             return SequenceStep.OUT_OF_ORDER
+        if pending is not None and value == (pending + 1) % self._modulus:
+            # A restarted counter replaying received numbers in order: the run
+            # began at the previous packet, which was provisionally a duplicate.
+            self._duplicates -= 1
+            self._resets += 1
+            self._begin_run(pending, SequenceStep.RESET)
+            self._advance(value, 1)
+            return SequenceStep.RESET
         self._duplicates += 1
+        self._pending_duplicate = value
         return SequenceStep.DUPLICATE
 
     def counts(self) -> SequenceCounts:
