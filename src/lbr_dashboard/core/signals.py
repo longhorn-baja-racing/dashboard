@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from math import isfinite
-from numbers import Integral
+from numbers import Integral, Real
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
@@ -17,6 +17,38 @@ from .registry import RegistryError
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
 SchemaVersion: TypeAlias = int | str
+
+
+class _FrozenMapping(Mapping[str, JsonValue]):
+    """Immutable metadata with a pickle representation made of plain containers."""
+
+    __slots__ = ("_values",)
+    _values: Mapping[str, JsonValue]
+
+    def __init__(self, values: Mapping[str, JsonValue]) -> None:
+        object.__setattr__(self, "_values", MappingProxyType(dict(values)))
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("signal metadata is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("signal metadata is immutable")
+
+    def __getitem__(self, key: str) -> JsonValue:
+        return self._values[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def __reduce__(self):
+        return type(self), (dict(self._values),)
+
 
 KNOWN_SIGNAL_TYPES = frozenset({"numeric", "boolean", "string", "event", "vector", "status"})
 _DESCRIPTOR_FIELDS = {
@@ -74,9 +106,9 @@ def _validate_shape(value: object) -> tuple[int, ...]:
         raise SignalSchemaError("shape must be a sequence of positive integers")
     shape: list[int] = []
     for dimension in value:
-        if isinstance(dimension, bool) or not isinstance(dimension, int) or dimension <= 0:
+        if isinstance(dimension, bool) or not isinstance(dimension, Integral) or dimension <= 0:
             raise SignalSchemaError("shape dimensions must be positive integers")
-        shape.append(dimension)
+        shape.append(int(dimension))
     return tuple(shape)
 
 
@@ -90,6 +122,18 @@ def _freeze_json(value: object, field_name: str) -> JsonValue:
             if isinstance(item, float) and not isfinite(item):
                 raise SignalSchemaError(f"{field_name} cannot contain non-finite numbers")
             return item
+        if isinstance(item, Integral):
+            return int(item)
+        if isinstance(item, Real):
+            try:
+                number = float(item)
+            except OverflowError as error:
+                raise SignalSchemaError(
+                    f"{field_name} cannot contain non-finite numbers"
+                ) from error
+            if not isfinite(number):
+                raise SignalSchemaError(f"{field_name} cannot contain non-finite numbers")
+            return number
         if id(item) in active:
             raise SignalSchemaError(f"{field_name} contains a cyclic value")
         active.add(id(item))
@@ -98,9 +142,7 @@ def _freeze_json(value: object, field_name: str) -> JsonValue:
                 if any(not isinstance(key, str) for key in item):
                     raise SignalSchemaError(f"{field_name} keys must be strings")
                 # Keys are opaque metadata. Normalizing them can silently lose values.
-                return MappingProxyType(
-                    {key: visit(child, depth + 1) for key, child in item.items()}
-                )
+                return _FrozenMapping({key: visit(child, depth + 1) for key, child in item.items()})
             if isinstance(item, Sequence) and not isinstance(item, (str, bytes, bytearray)):
                 return tuple(visit(child, depth + 1) for child in item)
             raise SignalSchemaError(
@@ -474,9 +516,9 @@ class SignalSample:
 
 @dataclass(frozen=True, slots=True)
 class SignalSeries:
-    __hash__ = None  # pyright: ignore[reportAssignmentType]
     """Sparse storage for one signal without synthetic row alignment."""
 
+    __hash__ = None  # pyright: ignore[reportAssignmentType]
     signal_id: str
     samples: tuple[SignalSample, ...]
     extra: Mapping[str, JsonValue] = field(default_factory=dict)
