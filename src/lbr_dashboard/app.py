@@ -14,6 +14,7 @@ from .core.log import LogImporter
 from .core.registry import Registry
 from .dashboard_controller import DashboardController
 from .importers.csv_importer import CsvImporter
+from .source_controller import SourceController
 from .ui.main_window import MainWindow
 
 
@@ -84,6 +85,7 @@ def create_main_window() -> MainWindow:
     importers.register("csv", CsvImporter)
     window = MainWindow()
     window.attach_controller(DashboardController(window, importers.create("csv")))
+    window.source_owner = SourceController(window)
     return window
 
 

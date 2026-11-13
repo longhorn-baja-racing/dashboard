@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QSplitter
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QSplitter, QVBoxLayout, QWidget
 
 from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
 from .left_panel import LeftPanel
 from .right_panel import RightPanel
+from .source_picker import SourcePicker
 from .top_menu_bar import TopMenuBar
 
 
@@ -19,6 +21,12 @@ class CsvLoader(Protocol):
     """Synchronous application operation exposed to the window."""
 
     def load_csv(self, file_path: str) -> None: ...
+
+
+class SourceOwner(Protocol):
+    def close(self) -> bool: ...
+    def release_for_legacy(self) -> None: ...
+    def has_session(self) -> bool: ...
 
 
 class MainWindow(QMainWindow):
@@ -31,6 +39,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._controller: CsvLoader | None = None
+        self.source_owner: SourceOwner | None = None
         self.setWindowTitle("LBR Dashboard")
         self.resize(1200, 700)
 
@@ -55,9 +64,20 @@ class MainWindow(QMainWindow):
 
         self.left_panel.setMinimumWidth(MIN_PANEL_WIDTH)
         self.right_panel.setMinimumWidth(MIN_PANEL_WIDTH)
-        self.setCentralWidget(splitter)
+        self.source_picker = SourcePicker()
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.addWidget(self.source_picker)
+        layout.addWidget(splitter, 1)
+        self.setCentralWidget(container)
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.source_owner is not None and not self.source_owner.close():
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def attach_controller(self, controller: CsvLoader) -> None:
         """Keep the application controller alive without owning its model data."""
@@ -67,6 +87,8 @@ class MainWindow(QMainWindow):
     def _select_column(self, column_index: int) -> None:
         """Highlight and plot the selected column, including the first selection."""
 
+        if self.source_owner is not None and self.source_owner.has_session():
+            return
         self.right_panel.highlight_column(column_index)
         if column_index < 0:
             return
@@ -96,6 +118,8 @@ class MainWindow(QMainWindow):
     def display_log(self, headers: tuple[str, ...], rows: tuple[tuple[str, ...], ...]) -> None:
         """Render an already imported session."""
 
+        if self.source_owner is not None:
+            self.source_owner.release_for_legacy()
         self.statusBar().clearMessage()
         self.right_panel.set_table(headers, rows)
         self.left_panel.set_columns(list(headers))
