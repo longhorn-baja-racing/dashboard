@@ -43,7 +43,7 @@ jobs:
       - name: Install Qt runtime libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes libegl1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.23"
           python-version: ${{ matrix.python-version }}
@@ -63,7 +63,7 @@ jobs:
         run: uv run --locked python scripts/check_quality.py --stage package
       - name: Upload diagnostics and built packages
         if: ${{ !cancelled() && hashFiles('test-results/**', 'coverage.xml', 'dist/*') != '' }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quality-${{ matrix.os }}-py${{ matrix.python-version }}
           path: |
