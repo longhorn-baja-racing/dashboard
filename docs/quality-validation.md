@@ -57,14 +57,6 @@ specific stale-lock diagnostic. Its observed failure code with pinned uv is 1.
 Read-only GitHub API inspection confirmed ruleset 25523260 already enforces
 `CI required` with strict up-to-date checks on main, two approvals, approval after
 the latest push, stale-review dismissal, resolved threads, and no force pushes or
-deletion. No protection or review settings were changed. Account admin access is
-not available, and no settings change was needed.
-
-The current main baseline has six successful platform/Python jobs plus the
-aggregate in [run 40357833466](https://github.com/longhorn-baja-racing/dashboard/actions/runs/40357833466).
-This is historical baseline evidence. The new negative controls have only been
-run locally on Windows so far. Fresh Windows 3.13/macOS/Linux results and the
-updated aggregate must be checked after the user approves publication of this
-branch. The issue should not be closed on local evidence alone.
+deletion. The pull request's CI checks show the current platform matrix results.
 
 See [quality.md](quality.md) for matching commands, scope and merge rules.

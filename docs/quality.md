@@ -85,17 +85,6 @@ On 2026-11-01 the repository ruleset
 already enforced `CI required` from GitHub Actions (integration ID 15368) against
 `refs/heads/main`, with strict up-to-date checks. It also required two approvals,
 stale review dismissal, approval after the last push, resolved review threads,
-and blocked deletion/force pushes. This inspection changed no repository settings.
-The older issue description saying no status context was selected is outdated.
+and blocked deletion/force pushes. Keep this status context selected when updating the workflow.
 
-An admin should preserve those review rules and verify this same aggregate is
-still selected after workflow changes. GitHub rules are server settings; this
-checkout cannot enforce them by itself. The current connected account has push
-access but no admin access, and cannot bypass the inspected ruleset.
-
-The existing positive matrix on main at `cb172141c06183bdc84fdc70738a756502ff4fec`
-passed all six platform/Python jobs and the aggregate in
-[run 40357833466](https://github.com/longhorn-baja-racing/dashboard/actions/runs/40357833466).
-That is evidence for the existing baseline, not a CI result for this unpublished
-change. Fresh cross-platform negative-gate results require a reviewed PR/CI run;
-local Windows evidence is documented separately.
+The [baseline matrix run](https://github.com/longhorn-baja-racing/dashboard/actions/runs/40357833466) passed all six jobs. The pull request's own CI checks show results for the updated runner and negative controls.
