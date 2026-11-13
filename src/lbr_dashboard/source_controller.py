@@ -283,10 +283,13 @@ class SourceController(QObject):
             self.session.ingest_source(self.source, limit=512)
             snapshot = self.session.snapshot()
             replay_snapshot = snapshot
-            if snapshot.revision != self._revision:
+            finished = self.source.join(0) and self.source.events.stats.buffered == 0
+            if snapshot.revision != self._revision or finished:
                 self._revision = snapshot.revision
+                self._finished_rendered = finished
                 self._render()
-            self._finished_rendered = self.source.join(0) and self.source.events.stats.buffered == 0
+                if finished and self.window.right_panel.time_plot.timer.isActive():
+                    self.window.right_panel.time_plot.refresh()
         self.replay.update(
             self.session,
             snapshot=replay_snapshot,
@@ -397,7 +400,7 @@ class SourceController(QObject):
         descriptor = descriptors[self._selected]
         browser.select_id(descriptor.identifier)
         records = snapshot.series[descriptor.identifier]
-        # One selected signal, at most 1,000 visible raw records; original session stays intact.
+        # The table shows a fixed number of original records independently of the plot window.
         rows = [
             (
                 str(r.sample.timestamp_ns),
@@ -414,22 +417,28 @@ class SourceController(QObject):
         )
         self.window.right_panel.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         panel = self.window.right_panel
-        panel._reset_plot()
         if descriptor.data_type not in {"numeric", "boolean"} or descriptor.shape:
+            panel._reset_plot()
             panel.plot_widget.setTitle(
                 f"{descriptor.display_name} - {descriptor.data_type} (inspect values below)"
             )
             return
         if not records:
+            panel._reset_plot()
             panel.plot_widget.setTitle(f"{descriptor.display_name} - waiting for readings")
             return
-        origin = records[0].sample.timestamp_ns
-        visible = records[-1000:]
-        xs = [(r.sample.timestamp_ns - origin) / 1e9 for r in visible]
-        ys = [float(r.sample.value) if r.sample.available else float("nan") for r in visible]
-        panel.plot_widget.plot(xs, ys, pen="#00aaff", symbol="o", symbolSize=5, connect="finite")
-        panel.plot_widget.setTitle(descriptor.display_name)
-        panel.plot_widget.setLabel("bottom", "Measurement time since first reading", units="s")
-        panel.plot_widget.setLabel(
-            "left", descriptor.display_name, units=descriptor.canonical_unit or ""
+        if self.source and not self.source.capabilities.is_live and not self._finished_rendered:
+            panel._reset_plot()
+            panel.plot_widget.setTitle("Loading measurements")
+            return
+        identity = (self.session, descriptor.identifier)
+        if panel.time_plot.identity != identity:
+            panel._reset_plot()
+        panel.time_plot.set_trace(
+            identity,
+            descriptor.display_name,
+            descriptor.canonical_unit,
+            (records[0].sample.timestamp_ns, records[-1].sample.timestamp_ns),
+            lambda start, end: snapshot.range(descriptor.identifier, start, end, neighbors=True),
         )
+        panel.fit_plot.show()
