@@ -52,14 +52,16 @@ def test_irregular_times_gaps_and_zero_keep_original_coordinates(qtbot):
         SignalSample(origin + t, value, available=value is not None)
         for t, value in reversed(values)
     )
-    before = session.snapshot()
+    before = [
+        record.sample.to_dict() for record in session.snapshot().series[descriptor.identifier]
+    ]
     curve = plot_session(panel, session, descriptor, [])
     x, y = points(curve)
     assert x.tolist() == [t / 1e9 for t, _ in values]
     assert [y[0], y[1], y[3], y[4]] == [0, 5, 8, -1]
     assert math.isnan(y[2])
     assert curve.opts["connect"].tolist() == [True, False, False, True, False]
-    assert session.snapshot() == before
+    assert [r.sample.to_dict() for r in session.snapshot().series[descriptor.identifier]] == before
 
 
 def test_large_trace_keeps_narrow_extrema_and_omitted_gap_breaks(qtbot):
@@ -112,6 +114,19 @@ def test_updates_keep_manual_range_and_empty_view_is_safe(qtbot):
     panel.time_plot.view.setXRange(10, 11, padding=0)
     panel.time_plot.refresh()
     assert curve.getData() == (None, None)
+
+
+def test_x_zoom_fits_y_without_an_offscreen_spike(qtbot):
+    panel = RightPanel()
+    qtbot.addWidget(panel)
+    session, descriptor = session_for(
+        SignalSample(i * 1_000_000_000, value) for i, value in enumerate([900, 1, 2, 3, 800])
+    )
+    plot_session(panel, session, descriptor, [])
+    panel.time_plot.view.setXRange(0.9, 3.1, padding=0)
+    qtbot.waitUntil(lambda: panel.time_plot.view.viewRange()[1][1] < 4)
+    low, high = panel.time_plot.view.viewRange()[1]
+    assert low <= 1 and high >= 3
 
 
 def test_real_dashboard_csv_plots_earlier_readings_and_replay_marker(qtbot, tmp_path: Path):

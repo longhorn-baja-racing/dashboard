@@ -330,9 +330,11 @@ class TelemetrySession:
                 dict(self._evicted),
             )
 
-    def range(self, signal_id: str, start_ns: int, end_ns: int) -> tuple[SessionRecord, ...]:
+    def range(
+        self, signal_id: str, start_ns: int, end_ns: int, *, neighbors: bool = False
+    ) -> tuple[SessionRecord, ...]:
         with self._lock:
-            return _range(self._series[signal_id], start_ns, end_ns)
+            return _range(self._series[signal_id], start_ns, end_ns, neighbors=neighbors)
 
     def nearest(
         self,

@@ -79,6 +79,7 @@ class TimePlot(QObject):
         self.query: Callable[[int, int], Sequence[SessionRecord]] | None = None
         self.fitted = True
         self._setting_range = False
+        self._fit_visible_y = False
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(80)
@@ -87,6 +88,7 @@ class TimePlot(QObject):
 
     def clear(self) -> None:
         self.timer.stop()
+        self._fit_visible_y = False
         self.query = None
         self.identity = None
         if self.curve is not None:
@@ -129,6 +131,7 @@ class TimePlot(QObject):
     def _view_changed(self) -> None:
         if self.query is not None and not self._setting_range:
             self.fitted = False
+            self._fit_visible_y = True
             self._schedule()
 
     def refresh(self) -> None:
@@ -157,12 +160,17 @@ class TimePlot(QObject):
             symbolSize=5 if len(xs) <= 100 else 2,
             symbolBrush="#00aaff",
         )
-        if self.fitted:
-            low, high = [(t - self.origin_ns) / NANOSECONDS for t in self.bounds]
-            valid = ys[np.isfinite(ys)]
+        if self.fitted or self._fit_visible_y:
+            visible = np.isfinite(ys)
+            if not self.fitted:
+                visible &= (xs >= low) & (xs <= high)
+            valid = ys[visible]
+            self._fit_visible_y = False
             self._setting_range = True
             try:
-                self.view.setXRange(low, high if high > low else low + 0.001, padding=0.02)
+                if self.fitted:
+                    left, right = [(t - self.origin_ns) / NANOSECONDS for t in self.bounds]
+                    self.view.setXRange(left, right if right > left else left + 0.001, padding=0.02)
                 if valid.size:
                     self.view.setYRange(float(valid.min()), float(valid.max()), padding=0.05)
             finally:
