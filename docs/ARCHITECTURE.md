@@ -50,6 +50,10 @@ and widgets cannot import that layer, including `dashboard_controller`.
 
 ## Worker lifecycle
 
+The concrete telemetry source lifecycle and bounded handoff are documented in
+[telemetry-sources.md](telemetry-sources.md). Sources own their worker/queue and
+expose persistent health; the older generic service below remains independent.
+
 `BackgroundService` owns one worker thread, event queue, and cancellation
 token. Worker code can only enqueue immutable events; it cannot call a UI
 callback. After the worker finishes, the owner calls `join`, reads `failure`
