@@ -15,7 +15,9 @@ It adds no runtime layers for providers that do not exist yet.
 The dependency direction is enforced by `tests/architecture/test_boundaries.py`.
 numpy is a declared runtime dependency and has no UI or framework coupling. Core
 uses it only to hold large sample arrays compactly (for example
-`core/lbr_session.py`); contracts and lifecycle code stay standard library only.
+`core/lbr_session.py`) and for established numerical routines on them (for
+example `numpy.fft` in `core/spectrum.py`); contracts and lifecycle code stay
+standard library only.
 Core and importers never import the UI or the composition root. UI widgets do
 not import concrete importer implementations.
 The check resolves relative and package-root imports, every imported alias, and
