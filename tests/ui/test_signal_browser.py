@@ -228,3 +228,16 @@ def test_broken_search_binding_fails_normal_search_case(browser):
     browser.proxy.setFilterRole(ID_ROLE)
     with pytest.raises(AssertionError, match="Search did not return"):
         test_literal_search_by_descriptor_fields(browser, "lab/thermal", {"lab.temp"})
+
+
+def test_live_refresh_preserves_current_group_and_collapse(browser):
+    schema = SignalSchema(1, descriptors())
+    browser.select_id("lab.temp")
+    group = browser.proxy.mapFromSource(browser._groups[("lab",)].index())
+    browser.tree.setCurrentIndex(group)
+    browser.tree.collapse(group)
+    browser.refresh(schema, {"lab.temp": (False, "No reading")})
+    browser.select_id("lab.temp")
+    assert browser.tree.currentIndex() == group
+    assert not browser.tree.isExpanded(group)
+    assert "No reading" in browser.details.text()
