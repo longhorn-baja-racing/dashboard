@@ -158,6 +158,7 @@ def test_shortcuts_do_not_steal_editing_or_widget_navigation(transport, qtbot, k
         widget.show()
     window.activateWindow()
     widget.setFocus()
+    owner.replay.seek_slider(5000)
     before = owner.replay.clock.snapshot()
     # Exercise the filter directly as well as actual text entry.
     if kind not in {"button", "tree", "spin", "combo"}:
@@ -285,6 +286,21 @@ def test_play_after_seeking_to_end_restarts_immediately(transport, qtbot):
     window.replay_bar.play.click()
     assert owner.replay.clock.snapshot().mode is PlaybackMode.PLAYING
     assert owner.replay.clock.snapshot().selected_ns == 0
+
+
+def test_slider_keyboard_steps_on_odd_timestamp_span(transport, qtbot, tmp_path):
+    window, owner, _ = transport
+    path = tmp_path / "odd.csv"
+    path.write_text("timestamp_ms,value\n0,1\n2999.999999,2\n")
+    owner.open_csv(path)
+    qtbot.waitUntil(lambda: window.replay_bar.slider.isEnabled())
+    slider = window.replay_bar.slider
+    slider.setFocus()
+    for expected in range(1, 21):
+        qtbot.keyClick(slider, Qt.Key.Key_Right)
+        assert slider.value() == expected
+    slider.setValue(5000)
+    assert slider.value() == 5000
 
 
 def test_cursor_uses_resolved_domain_and_is_hidden_for_structured_signals(transport, qtbot):

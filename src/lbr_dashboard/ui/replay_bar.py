@@ -87,20 +87,22 @@ class ReplayBar(QGroupBox):
         if not self.slider.isSliderDown():
             self.slider.blockSignals(True)
             self.slider.setValue(
-                ((selected - start) * SLIDER_STEPS // span) if populated and span > 0 else 0
+                (((selected - start) * SLIDER_STEPS + span // 2) // span)
+                if populated and span > 0
+                else 0
             )
             self.slider.blockSignals(False)
         self.speed.blockSignals(True)
         self.speed.setCurrentIndex(self.speed.findData(float(frame.speed)))
         self.speed.blockSignals(False)
         if not populated:
-            self.time.setText("No replay data — connect a CSV or simulator source.")
+            self.time.setText("No replay data - connect a CSV or simulator source.")
         else:
             elapsed = selected - start
             reference = frame.reference[0] if frame.reference else "unbound"
             state = "Disconnected live input" if live and not frame.connected else frame.mode.value
             if busy or not ready:
-                state = "Loading / cleanup — replay controls unavailable"
+                state = "Loading / cleanup - replay controls unavailable"
             self.time.setText(
                 f"{state} | {seconds(elapsed)} / {seconds(span)} | "
                 f"Original time: {frame.selected_ns} ns | timeline: {reference}"

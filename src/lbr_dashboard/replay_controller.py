@@ -184,7 +184,7 @@ class ReplayController(QObject):
             or focus is self.window.replay_bar.slider
         ):
             return False
-        if event.modifiers() != Qt.KeyboardModifier.NoModifier:
+        if event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier:
             return False
         if event.key() == Qt.Key.Key_Space and self.window.replay_bar.play.isEnabled():
             if not event.isAutoRepeat():
