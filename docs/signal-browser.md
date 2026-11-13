@@ -7,7 +7,7 @@ text, so brackets and punctuation do not act as a regular expression. Clear the
 search field with its clear button.
 
 Every leaf shows both the display name and stable ID. Two signals called
-“Reading” remain separate and selectable. Selecting a leaf updates the plot and
+"Reading" remain separate and selectable. Selecting a leaf updates the plot and
 raw table and displays its full ID, path, unit, type, source, device and
 availability reason. The tree and metadata are read-only.
 

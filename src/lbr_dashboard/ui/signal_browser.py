@@ -119,6 +119,7 @@ class SignalBrowser(QWidget):
         self._groups: dict[tuple[str, ...], QStandardItem] = {}
         self._availability: dict[str, tuple[bool | None, str]] = {}
         self.selected_id: str | None = None
+        self._visible_count = 0
         self.search.textChanged.connect(self._filter)
         self.tree.selectionModel().currentChanged.connect(self._current)
 
@@ -128,7 +129,8 @@ class SignalBrowser(QWidget):
         availability: Mapping[str, tuple[bool | None, str]],
     ) -> None:
         """Update availability in place; rebuild only when descriptor metadata changes."""
-        if schema != self._schema:
+        schema_changed = schema != self._schema
+        if schema_changed:
             expanded = {
                 path
                 for path, item in self._groups.items()
@@ -155,7 +157,7 @@ class SignalBrowser(QWidget):
                         self._groups[path] = group
                     parent = self._groups[path]
                 row = [
-                    QStandardItem(f"{descriptor.display_name} — {descriptor.identifier}"),
+                    QStandardItem(f"{descriptor.display_name} - {descriptor.identifier}"),
                     QStandardItem(descriptor.canonical_unit or "unspecified"),
                     QStandardItem(),
                 ]
@@ -210,11 +212,16 @@ class SignalBrowser(QWidget):
                 item.setToolTip(reason)
                 item.setForeground(QBrush(QColor("#b8b8b8" if available is False else "#f2f2f2")))
                 item.setDragEnabled(available is True)
-        self._restore_selection()
+        if schema_changed:
+            self._restore_selection()
+        else:
+            self._details()
 
     def select_id(self, identifier: str | None, *, emit: bool = False) -> None:
-        self.selected_id = identifier if identifier in self._items else None
-        self._restore_selection()
+        selected = identifier if identifier in self._items else None
+        if selected != self.selected_id:
+            self.selected_id = selected
+            self._restore_selection(recount=False)
         if emit:
             self.signal_selected.emit(self.selected_id or "")
 
@@ -233,7 +240,7 @@ class SignalBrowser(QWidget):
             self._details()
             self.signal_selected.emit(identifier)
 
-    def _restore_selection(self) -> None:
+    def _restore_selection(self, *, recount: bool = True) -> None:
         selection = self.tree.selectionModel()
         selection.blockSignals(True)
         item = self._items.get(self.selected_id or "")
@@ -245,11 +252,12 @@ class SignalBrowser(QWidget):
                 self.tree.setExpanded(parent, True)
                 parent = parent.parent()
         selection.blockSignals(False)
-        visible = sum(
-            self.proxy.mapFromSource(row[0].index()).isValid() for row in self._items.values()
-        )
-        suffix = " — selected signal hidden by filter" if item and not index.isValid() else ""
-        self.summary.setText(f"{visible} of {len(self._items)} signals{suffix}")
+        if recount:
+            self._visible_count = sum(
+                self.proxy.mapFromSource(row[0].index()).isValid() for row in self._items.values()
+            )
+        suffix = " - selected signal hidden by filter" if item and not index.isValid() else ""
+        self.summary.setText(f"{self._visible_count} of {len(self._items)} signals{suffix}")
         self._details()
 
     def _details(self) -> None:
