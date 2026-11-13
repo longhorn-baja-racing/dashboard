@@ -19,7 +19,7 @@ from lbr_dashboard.app import create_application, create_main_window, main
 from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
 from lbr_dashboard.core import (SignalDescriptor, SignalSample, SignalSchema, SignalSeries,
-                                IteratorSource, SourceEvent, SourceEventKind)
+                                IteratorSource, SourceEvent, SourceEventKind, TelemetrySession)
 
 descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
                               timestamp_domain="device_monotonic")
@@ -37,6 +37,12 @@ assert source.join(5)
 assert [event.kind for event in source.events.drain()] == [SourceEventKind.DESCRIPTOR,
     SourceEventKind.RECORD, SourceEventKind.END_OF_STREAM]
 assert source.health().terminal_reason == "complete" and source.close()
+session = TelemetrySession(schema, max_samples_per_signal=10)
+session.extend(descriptor.identifier, series.samples)
+view = session.snapshot()
+assert view.bounds(descriptor.identifier) == (10, 10)
+assert view.range(descriptor.identifier, 10, 10)[0].sample == series.samples[0]
+assert view.nearest(descriptor.identifier, 1000, max_distance_ns=10) is None
 
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
