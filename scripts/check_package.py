@@ -19,7 +19,8 @@ from lbr_dashboard.app import create_application, create_main_window, main
 from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
 from lbr_dashboard.core import (SignalDescriptor, SignalSample, SignalSchema, SignalSeries,
-                                IteratorSource, SourceEvent, SourceEventKind, TelemetrySession)
+                                IteratorSource, SourceEvent, SourceEventKind, TelemetrySession,
+                                SessionClock, PlaybackMode)
 
 descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
                               timestamp_domain="device_monotonic")
@@ -43,6 +44,16 @@ view = session.snapshot()
 assert view.bounds(descriptor.identifier) == (10, 10)
 assert view.range(descriptor.identifier, 10, 10)[0].sample == series.samples[0]
 assert view.nearest(descriptor.identifier, 1000, max_distance_ns=10) is None
+clock = SessionClock()
+clock.update_from_session(view, descriptor.identifier)
+first, second = [], []
+off_a, off_b = clock.subscribe(first.append), clock.subscribe(second.append)
+clock.follow_live()
+assert first[-1] is second[-1] is clock.snapshot()
+assert clock.snapshot().selected_ns == 10
+assert clock.pause().mode is PlaybackMode.PAUSED
+off_a()
+off_b()
 
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
