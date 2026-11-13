@@ -5,7 +5,8 @@ nonblank text exactly, including case and punctuation. Integral timestamps are
 stored as Python integers, including when supplied as NumPy integers.
 
 Immutable model records are explicitly unhashable. Use signal IDs as dictionary
-keys and the plain JSON containers from `to_dict()` for portable copies and
+keys. Copying and pickling preserve immutable metadata. Use the plain JSON
+containers from `to_dict()` for portable
 persistence. Worker events accept the concrete model records and snapshot
 mutable byte arrays as bytes.
 
