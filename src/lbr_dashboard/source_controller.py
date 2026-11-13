@@ -55,6 +55,7 @@ class SourceController(QObject):
         self._notice = ""
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
+        self._legacy_loaded = False
         for family in ("process", "motion", "live"):
 
             def prepare(token, family=family):
@@ -111,7 +112,7 @@ class SourceController(QObject):
         self._prepared = []
         self._cancel_preparation = False
         self._preparation_cancel_started = None
-        self._notice = f"Preparing {option.label} — Disconnect cancels."
+        self._notice = f"Preparing {option.label} - Disconnect cancels."
 
         def work(token, emit):
             factory = option.prepare(token)
@@ -144,6 +145,7 @@ class SourceController(QObject):
                     else []
                 )
                 self.source.seek(min(times) if times else 0)
+                self._finished_rendered = False
             else:
                 if not self.source.capabilities.supports_rate_control:
                     return
@@ -160,20 +162,26 @@ class SourceController(QObject):
             self._preparing.cancel()
             if self._preparation_cancel_started is None:
                 self._preparation_cancel_started = monotonic()
-            self._notice = "Cancelling source preparation — waiting for worker cleanup."
+            self._notice = "Cancelling source preparation - waiting for worker cleanup."
         self._begin_release()
         self._present()
+
+    def has_session(self) -> bool:
+        return self.session is not None
 
     def release_for_legacy(self) -> None:
         """Legacy table imports may replace presentation only after a successful decode."""
         if self.source is not None or self._preparing is not None or self.session is not None:
             self.disconnect()
             self.session = None
+            self._legacy_loaded = True
             self._notice = (
                 "Legacy CSV table loaded. Use the source picker for timestamped sessions."
             )
 
     def _begin_release(self) -> None:
+        if self._releasing:
+            return
         self._releasing = True
         self._release_started = monotonic()
         if self.source is not None:
@@ -197,6 +205,7 @@ class SourceController(QObject):
             )
             self.source.open()
             self.source.start()
+            self._legacy_loaded = False
             self._label = self._last.label if self._last else self.source.source_id
             self._notice = ""
             self._revision = -1
@@ -230,7 +239,8 @@ class SourceController(QObject):
             self._preparing = None
             self._preparation_cancel_started = None
             if self._cancel_preparation:
-                self._notice = "Cancelled — previous readings remain available."
+                if not self._legacy_loaded:
+                    self._notice = "Cancelled - previous readings remain available."
             elif failure is not None:
                 self._notice = (
                     f"Could not open source: {failure.message}. Correct the file or retry."
@@ -246,8 +256,14 @@ class SourceController(QObject):
                 if self._next is not None and not self._closing:
                     factory, self._next = self._next, None
                     self._start(factory)
-                elif self._preparing is None and (not self._notice or self._cancel_preparation):
-                    self._notice = "Disconnected — readings retained for inspection."
+                elif self._preparing is None:
+                    if self._legacy_loaded:
+                        self._notice = (
+                            "Legacy CSV table loaded. "
+                            "Use the source picker for timestamped sessions."
+                        )
+                    elif not self._notice or self._cancel_preparation:
+                        self._notice = "Disconnected - readings retained for inspection."
             elif monotonic() - self._release_started >= 2:
                 self._notice = (
                     "Cleanup is still pending. The adapter has not released its worker; "
@@ -298,7 +314,7 @@ class SourceController(QObject):
             if message:
                 detail += f" | {message}"
             message = detail
-        picker.status.setText(message or "Idle — choose CSV or a fictional simulator.")
+        picker.status.setText(message or "Idle - choose CSV or a fictional simulator.")
 
     def select(self, index: int) -> None:
         self._selected = index
@@ -323,7 +339,7 @@ class SourceController(QObject):
         if self._displayed_schema != snapshot.schema:
             self._displayed_schema = snapshot.schema
             labels = [
-                f"{d.display_name} [{d.canonical_unit or 'unit unspecified'}] — {d.identifier}"
+                f"{d.display_name} [{d.canonical_unit or 'unit unspecified'}] - {d.identifier}"
                 for d in descriptors
             ]
             self.window.left_panel.list_widget.blockSignals(True)
@@ -375,11 +391,11 @@ class SourceController(QObject):
         panel._reset_plot()
         if descriptor.data_type not in {"numeric", "boolean"} or descriptor.shape:
             panel.plot_widget.setTitle(
-                f"{descriptor.display_name} — {descriptor.data_type} (inspect values below)"
+                f"{descriptor.display_name} - {descriptor.data_type} (inspect values below)"
             )
             return
         if not records:
-            panel.plot_widget.setTitle(f"{descriptor.display_name} — waiting for readings")
+            panel.plot_widget.setTitle(f"{descriptor.display_name} - waiting for readings")
             return
         origin = records[0].sample.timestamp_ns
         visible = records[-1000:]
