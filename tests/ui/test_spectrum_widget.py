@@ -59,6 +59,7 @@ def test_psd_mode_plots_density_with_its_unit(widget: SpectrumWidget) -> None:
     widget.show_spectrum(result, "accel", mode="psd")
     assert widget.curve is not None
     _, ys = widget.curve.getData()
+    assert ys is not None
     assert np.array_equal(ys, result.psd)
     assert widget.plot_widget.getAxis("left").labelText == "PSD ((m/s^2)^2/Hz)"
 

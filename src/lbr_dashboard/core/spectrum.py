@@ -203,7 +203,7 @@ def spectrum(
 
     amplitude = magnitude * one_sided / window_sum
     psd = magnitude**2 * one_sided / (sample_rate * window_power)
-    frequencies = np.fft.rfftfreq(count, d=1.0 / sample_rate)
+    frequencies = np.fft.rfftfreq(count, d=1.0 / sample_rate).astype(np.float64)
     for array in (frequencies, amplitude, psd):
         array.setflags(write=False)
 
