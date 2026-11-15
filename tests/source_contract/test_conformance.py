@@ -7,7 +7,17 @@ from typing import Any, cast
 
 import pytest
 
-from lbr_dashboard.core import CancellationToken, SourceCapabilities, SourceEventKind, SourceState
+from lbr_dashboard.core import (
+    CancellationToken,
+    SignalDescriptor,
+    SignalSample,
+    SignalSchema,
+    SourceCapabilities,
+    SourceEvent,
+    SourceEventKind,
+    SourceState,
+)
+from lbr_dashboard.importers.csv_source import prepare_csv
 
 from .checks import (
     AdapterRun,
@@ -184,6 +194,69 @@ def test_csv_decode_errors_are_reported(spec: Fixture, tmp_path: Path, corrupt: 
     run = make_run("csv", spec, path)
     path.write_bytes(corrupt)
     assert_failed(run, has_records=False)
+
+
+@pytest.mark.parametrize(
+    ("headers", "rows", "times_ns", "columns"),
+    [
+        (
+            ("pressure", "pressure"),
+            ("-0.000007,0,20", "2.1,,21", "2.1,8,22", "1.5,9,"),
+            (-7, 2_100_000, 2_100_000, 1_500_000),
+            (("numeric", (0.0, None, 8.0, 9.0)), ("numeric", (20.0, 21.0, 22.0, None))),
+        ),
+        (
+            ("angle", "state"),
+            ("1152921504606.846989,0,ready", "1152921504606.846990,-2,"),
+            (2**60 + 13, 2**60 + 14),
+            (("numeric", (0.0, -2.0)), ("string", ("ready", None))),
+        ),
+    ],
+    ids=["process", "motion"],
+)
+def test_dashboard_csv_replay_matches_the_finite_source_contract(
+    tmp_path: Path, headers, rows, times_ns, columns
+):
+    path = tmp_path / "log.csv"
+    original = f"timestamp_ms,{','.join(headers)}\n" + "\n".join(rows) + "\n"
+    path.write_bytes(original.encode("utf-8"))
+    source_id = str(path.resolve())
+    descriptors = []
+    expected = []
+    for column, (name, (kind, values)) in enumerate(zip(headers, columns), start=1):
+        signal_id = f"csv.column.{column}"
+        descriptors.append(
+            SignalDescriptor(
+                signal_id,
+                name,
+                ("csv",),
+                kind,
+                source_id,
+                timestamp_domain="relative",
+                display={"csv_column": column, "csv_header": name},
+            )
+        )
+        expected.extend(
+            SourceEvent(
+                SourceEventKind.RECORD,
+                source_id,
+                signal_id=signal_id,
+                sample=SignalSample(
+                    timestamp_ns,
+                    value,
+                    available=value is not None,
+                    quality="measured" if value is not None else "missing",
+                    source_id=source_id,
+                    timestamp_domain="relative",
+                ),
+            )
+            for timestamp_ns, value in zip(times_ns, values, strict=True)
+        )
+    run = AdapterRun(prepare_csv(path, CancellationToken()).source())
+    for _ in range(2):
+        assert_controls(run.source)
+        assert_finite(run, SignalSchema(1, tuple(descriptors)), tuple(expected))
+    assert path.read_bytes() == original.encode("utf-8")
 
 
 def test_supported_controls_require_effect_probes(spec: Fixture):

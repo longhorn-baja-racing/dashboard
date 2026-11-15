@@ -10,7 +10,8 @@ uv run --locked pytest tests/source_contract -v
 
 The suite uses the [signal model](signal-model.md) and [source lifecycle
 contract](telemetry-sources.md). It exercises an iterator fake, a CSV-backed
-fixture, and the real `SimulatorSource`. The fictional process and motion
+fixture, the real `SimulatorSource`, and the dashboard's `timestamp_ms` CSV
+source. The fictional process and motion
 families combine fast and slow signals, duplicate display names, true zeros or
 `False`, and unavailable values. They use signed integer nanoseconds, including
 timestamps beyond exact floating-point integer precision.
@@ -61,6 +62,8 @@ record. `time_ns` is a base-10 integer in the relative time domain, `value` is a
 JSON scalar (`null` for unavailable), and `available` is `0` or `1`. IDs, quality
 and unit are read verbatim; descriptors come from the supplied fixture schema.
 The CSV fixture uses an actual file reader. Its live case uses fixture values
-to exercise streaming behavior. This is a test input mapping, separate from
-the production CSV adapter in #31. That adapter can register its own mapping
-and fixture when integrated.
+to exercise streaming behavior. The dashboard's `timestamp_ms` adapter runs
+through the same finite checks with separate input and expected events,
+including repeated column names, late and duplicate timestamps, missing
+cells, and integer nanoseconds beyond floating-point precision. The arbitrary
+mapping adapter in #31 can add its own fixtures when integrated.
