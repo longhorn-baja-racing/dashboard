@@ -93,6 +93,15 @@ def assert_finite(
             assert actual.sample.timestamp_ns == wanted.sample.timestamp_ns, (
                 f"record {index}: original timestamp changed"
             )
+            assert actual.sample.available == wanted.sample.available, (
+                f"record {index}: missingness changed"
+            )
+            actual_type = type(actual.sample.value)
+            wanted_type = type(wanted.sample.value)
+            assert actual_type is wanted_type, (
+                f"record {index}: value type changed from "
+                f"{wanted_type.__name__} to {actual_type.__name__}"
+            )
             assert actual.sample == wanted.sample, (
                 f"record {index}: value, missingness, quality, unit or provenance changed"
             )

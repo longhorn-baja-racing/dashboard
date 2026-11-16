@@ -49,7 +49,8 @@ ordered schedule and no input reader, so those reader cases do not apply.
 
 The finite-run helper bounds collection by both wall time and event count.
 Cancellation and close checks give the worker a deadline to release resources.
-Negative controls corrupt delivered IDs, timestamps and missingness, make a
+Negative controls corrupt delivered IDs, timestamps, missingness and value
+types (such as delivering integer zero for boolean false), make a
 finite reader stream forever, misreport its queue capacity, and disable
 cooperative stop. Each runs the same assertions as the passing adapters and
 must fail for the expected reason.
@@ -65,5 +66,7 @@ The CSV fixture uses an actual file reader. Its live case uses fixture values
 to exercise streaming behavior. The dashboard's `timestamp_ms` adapter runs
 through the same finite checks with separate input and expected events,
 including repeated column names, late and duplicate timestamps, missing
-cells, and integer nanoseconds beyond floating-point precision. The arbitrary
+cells, and integer nanoseconds beyond floating-point precision. A longer
+fixture fills the production queue and verifies every sample survives the
+consumer stall. The arbitrary
 mapping adapter in #31 can add its own fixtures when integrated.

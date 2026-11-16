@@ -197,28 +197,30 @@ def test_csv_decode_errors_are_reported(spec: Fixture, tmp_path: Path, corrupt: 
 
 
 @pytest.mark.parametrize(
-    ("headers", "rows", "times_ns", "columns"),
+    ("headers", "rows", "times_ns", "columns", "repeats"),
     [
         (
             ("pressure", "pressure"),
             ("-0.000007,0,20", "2.1,,21", "2.1,8,22", "1.5,9,"),
             (-7, 2_100_000, 2_100_000, 1_500_000),
             (("numeric", (0.0, None, 8.0, 9.0)), ("numeric", (20.0, 21.0, 22.0, None))),
+            20,
         ),
         (
             ("angle", "state"),
             ("1152921504606.846989,0,ready", "1152921504606.846990,-2,"),
             (2**60 + 13, 2**60 + 14),
             (("numeric", (0.0, -2.0)), ("string", ("ready", None))),
+            1,
         ),
     ],
     ids=["process", "motion"],
 )
-def test_dashboard_csv_replay_matches_the_finite_source_contract(
-    tmp_path: Path, headers, rows, times_ns, columns
+def test_timestamp_ms_csv_replay_matches_the_finite_source_contract(
+    tmp_path: Path, headers, rows, times_ns, columns, repeats
 ):
     path = tmp_path / "log.csv"
-    original = f"timestamp_ms,{','.join(headers)}\n" + "\n".join(rows) + "\n"
+    original = f"timestamp_ms,{','.join(headers)}\n" + ("\n".join(rows) + "\n") * repeats
     path.write_bytes(original.encode("utf-8"))
     source_id = str(path.resolve())
     descriptors = []
@@ -250,13 +252,64 @@ def test_dashboard_csv_replay_matches_the_finite_source_contract(
                     timestamp_domain="relative",
                 ),
             )
-            for timestamp_ns, value in zip(times_ns, values, strict=True)
+            for timestamp_ns, value in zip(times_ns * repeats, values * repeats, strict=True)
         )
     run = AdapterRun(prepare_csv(path, CancellationToken()).source())
+    source = run.source
+    assert_controls(source)
+    assert not source.capabilities.is_live
     for _ in range(2):
-        assert_controls(run.source)
-        assert_finite(run, SignalSchema(1, tuple(descriptors)), tuple(expected))
+        try:
+            source.open()
+            source.start()
+            if repeats > 1:
+                capacity = source.capabilities.buffer_capacity
+                assert len(expected) > capacity, "CSV fixture must exceed queue capacity"
+                until(lambda: source.events.stats.buffered == capacity, "CSV queue never filled")
+                assert not source.join(0.08), "CSV replay completed while the consumer was stalled"
+            assert_finite(
+                run, SignalSchema(1, tuple(descriptors)), tuple(expected), already_started=True
+            )
+        finally:
+            assert_closed(run)
     assert path.read_bytes() == original.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("family", "wanted_value", "wrong_value"),
+    [("motion", False, 0), ("motion", True, 1), ("process", 7, 7.0)],
+    ids=["false-as-zero", "true-as-one", "int-as-float"],
+)
+def test_conformance_rejects_equal_values_of_the_wrong_type(
+    tmp_path: Path, monkeypatch, family: str, wanted_value, wrong_value
+):
+    spec = fixture(family)
+    run = make_run("fake", spec, tmp_path / "unused.csv")
+    source = run.source
+    source.open()
+    drain = source.events.drain
+
+    def wrong_type_drain(limit=None):
+        events = []
+        for event in drain(limit):
+            sample = event.sample
+            if (
+                sample is not None
+                and type(sample.value) is type(wanted_value)
+                and sample.value == wanted_value
+            ):
+                event = replace(event, sample=replace(sample, value=wrong_value))
+            events.append(event)
+        return tuple(events)
+
+    monkeypatch.setattr(source.events, "drain", wrong_type_drain)
+    assert wanted_value == wrong_value
+    try:
+        source.start()
+        with pytest.raises(AssertionError, match="value type changed"):
+            assert_finite(run, spec.schema, spec.expected, already_started=True)
+    finally:
+        assert_closed(run)
 
 
 def test_supported_controls_require_effect_probes(spec: Fixture):
