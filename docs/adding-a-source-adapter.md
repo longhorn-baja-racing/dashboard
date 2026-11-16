@@ -13,7 +13,7 @@ From the repository root with [uv installed](../README.md#development-setup):
 ```powershell
 uv sync --locked --extra dev
 uv run --locked python tests/source_contract/tutorial.py tests/fixtures/tutorial-bench-log.txt
-uv run --locked pytest tests/source_contract/test_tutorial.py -v
+uv run --locked pytest tests/source_contract/test_tutorial.py tests/ui/test_adapter_tutorial.py -v
 ```
 
 Choose **Example bench log** in the source picker and click **Open CSV / Connect**.
@@ -26,8 +26,9 @@ ASCII file with one `microseconds,pascals` record per line and no header.
 Each timestamp is a nonnegative integer in one device-monotonic clock domain.
 Each pressure value is an integer or a blank field. The adapter converts
 microseconds to integer nanoseconds exactly, with a signed 64-bit upper bound.
-It reads at most 65 bytes at a time to detect overlong lines, closes the file
-when its iterator exits, and reports a malformed row with its line number.
+It accepts up to 64 bytes per record excluding LF or CRLF and up to 20,000
+records. An empty log fails. A malformed or excess record reports its line
+number. The file closes when the iterator exits.
 
 ## Map the input into the source contract
 
@@ -60,7 +61,7 @@ job. See the [lifecycle and backpressure contract](telemetry-sources.md).
 ## Register the adapter where the app is composed
 
 Register a `SourceOption` on the existing `SourceController` as shown in the
-example's `main()`. Its preparation callback runs in the background and
+example's `create_demo_window()`. Its preparation callback runs in the background and
 receives a cancellation token. Return a factory that creates a fresh source
 for each attempt. The example defers opening the chosen file to the source
 worker. If preparation itself reads input, check the token there as well and
@@ -73,7 +74,11 @@ Use the [shared conformance assertions](source-conformance.md). Write expected
 descriptors and events directly from the format specification. The
 [example tests](../tests/source_contract/test_tutorial.py) check valid replay,
 reject a fabricated zero, report a malformed line, and stop with a full queue
-to verify that the file closes.
+to verify that the file closes. The [picker test](../tests/ui/test_adapter_tutorial.py)
+uses the tutorial's registration code and checks the real plot and table.
+The tutorial branch is stacked on the conformance suite (PR #161), which
+includes the picker (PR #148). The source contracts from issues #18 and #20
+remain under review.
 
 Before adding a format or transport:
 

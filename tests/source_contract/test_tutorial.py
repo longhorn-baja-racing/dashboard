@@ -1,5 +1,6 @@
 """Run the documented adapter through the shared contract assertions."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,16 @@ from lbr_dashboard.core import (
     SourceEventKind,
 )
 
-from .checks import AdapterRun, assert_cancelled, assert_closed, assert_failed, assert_finite, until
+from . import tutorial
+from .checks import (
+    AdapterRun,
+    assert_cancelled,
+    assert_closed,
+    assert_failed,
+    assert_finite,
+    records,
+    until,
+)
 from .tutorial import bench_source
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "tutorial-bench-log.txt"
@@ -48,6 +58,37 @@ def test_tutorial_adapter_conforms():
     assert_finite(AdapterRun(bench_source(FIXTURE)), SCHEMA, EXPECTED)
 
 
+@pytest.mark.parametrize("ending", [b"", b"\n", b"\r\n"])
+def test_exact_timestamp_and_maximum_record_width(tmp_path, ending):
+    path = tmp_path / "boundary.txt"
+    path.write_bytes(b"9223372036854775," + b"0" * 47 + ending)
+    sample = EXPECTED[0].sample
+    assert sample is not None
+    event = replace(EXPECTED[0], sample=replace(sample, timestamp_ns=9_223_372_036_854_775_000))
+    assert_finite(AdapterRun(bench_source(path)), SCHEMA, (event,))
+
+
+def test_empty_file_is_a_source_failure(tmp_path):
+    path = tmp_path / "empty.txt"
+    path.write_bytes(b"")
+    run = AdapterRun(bench_source(path))
+    assert_failed(run, has_records=False)
+    error = run.source.health().last_error
+    assert error is not None and "no readings" in error.message
+
+
+def test_record_limit_preserves_accepted_prefix_and_reports_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(tutorial, "MAX_RECORDS", 4)
+    path = tmp_path / "oversized.txt"
+    # Write a complete fifth record without relying on the fixture's line endings.
+    path.write_text(FIXTURE.read_text(encoding="ascii").rstrip() + "\n50000,12\n", encoding="ascii")
+    run = AdapterRun(bench_source(path))
+    events = assert_failed(run, has_records=True)
+    assert records(events) == EXPECTED
+    error = run.source.health().last_error
+    assert error is not None and "line 5: log exceeds 4 readings" in error.message
+
+
 def test_conformance_rejects_a_fabricated_zero(tmp_path):
     path = tmp_path / "bad-mapping.txt"
     path.write_text(
@@ -57,7 +98,10 @@ def test_conformance_rejects_a_fabricated_zero(tmp_path):
         assert_finite(AdapterRun(bench_source(path)), SCHEMA, EXPECTED)
 
 
-@pytest.mark.parametrize("bad_row", [b"bad,1\n", b"1,\xff\n", b"1," + b"9" * 70 + b"\n"])
+@pytest.mark.parametrize(
+    "bad_row",
+    [b"bad,1\n", b"1,\xff\n", b"1," + b"9" * 63 + b"\r\n", b"9223372036854776,0\n"],
+)
 def test_tutorial_adapter_reports_the_failing_line(tmp_path, bad_row):
     path = tmp_path / "invalid.txt"
     path.write_bytes(b"0,0\n" + bad_row)

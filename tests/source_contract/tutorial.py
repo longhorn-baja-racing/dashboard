@@ -18,6 +18,7 @@ SIGNAL = "bench.pressure"
 DOMAIN = "device_monotonic"
 UNIT = "Pa"
 MAX_LINE = 64
+MAX_RECORDS = 20_000
 
 
 def bench_source(path: Path) -> IteratorSource:
@@ -35,9 +36,16 @@ def bench_source(path: Path) -> IteratorSource:
     def records(cancel: CancellationToken) -> Iterator[SourceEvent]:
         cancel.raise_if_cancelled()
         with path.open("rb") as stream:
-            for number, raw in enumerate(iter(lambda: stream.readline(MAX_LINE + 1), b""), 1):
+            # Allow CRLF and one extra byte so a long record cannot masquerade as a full row.
+            lines = iter(lambda: stream.readline(MAX_LINE + 3), b"")
+            number = 0
+            for number, raw in enumerate(lines, 1):
                 cancel.raise_if_cancelled()
                 try:
+                    if number > MAX_RECORDS:
+                        raise ValueError(f"log exceeds {MAX_RECORDS:,} readings")
+                    if raw.endswith(b"\n"):
+                        raw = raw[:-1].removesuffix(b"\r")
                     if len(raw) > MAX_LINE:
                         raise ValueError("record is too long")
                     timestamp, pressure = raw.decode("ascii").strip().split(",")
@@ -60,19 +68,33 @@ def bench_source(path: Path) -> IteratorSource:
                         timestamp_domain=DOMAIN,
                     ),
                 )
+            if number == 0:
+                raise ValueError("Bench log has no readings")
 
     return IteratorSource(SOURCE, SignalSchema(1, (descriptor,)), records, capacity=4)
+
+
+def create_demo_window(path: Path):
+    """Register the demo at the application boundary."""
+    from lbr_dashboard.app import create_main_window
+    from lbr_dashboard.source_controller import SourceController, SourceOption
+
+    window = create_main_window()
+    owner = window.source_owner
+    assert isinstance(owner, SourceController)
+
+    def prepare(token: CancellationToken):
+        token.raise_if_cancelled()
+        return lambda: bench_source(path)
+
+    owner.register(SourceOption("bench_log", "Example bench log", prepare))
+    return window
 
 
 def main() -> int:
     from argparse import ArgumentParser
 
-    from lbr_dashboard.app import (
-        create_application,
-        create_main_window,
-        install_garbage_collector,
-    )
-    from lbr_dashboard.source_controller import SourceController, SourceOption
+    from lbr_dashboard.app import create_application, install_garbage_collector
 
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path, help="explicit bench log file")
@@ -80,12 +102,7 @@ def main() -> int:
 
     app = create_application([])
     install_garbage_collector(app)
-    window = create_main_window()
-    owner = window.source_owner
-    assert isinstance(owner, SourceController)
-    owner.register(
-        SourceOption("bench_log", "Example bench log", lambda _: lambda: bench_source(args.path))
-    )
+    window = create_demo_window(args.path)
     window.show()
     return app.exec()
 
