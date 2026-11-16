@@ -9,6 +9,9 @@ ingestion (#21), and replay controls (#22) are separate work. The
 [source conformance suite](source-conformance.md) (#111) checks the shared
 contract without a binary protocol or physical hardware.
 
+See [Adding a telemetry source adapter](adding-a-source-adapter.md) for a
+tested file adapter and the source picker registration example.
+
 ## Owner and worker
 
 - `open(cancellation=None)` prepares a cycle without performing adapter I/O. It
