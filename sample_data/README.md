@@ -36,14 +36,14 @@ across them rather than drawing a gap.
 
 ## Malformed fixtures (`fixtures/malformed/`)
 
-These are inputs for import-error handling (#103). Tests pin the importer's current
-behavior and should be updated when that changes.
+The parser decodes rows and leaves the decision to replace the active session to
+the application. The Open CSV action handles these files as follows.
 
-| File | Content | Current behavior |
+| File | Content | What the dashboard shows |
 |---|---|---|
-| `error_empty.csv` | zero bytes | empty session; `LogSessionStore.load` returns `False` |
-| `error_bad_encoding.csv` | invalid UTF-8 bytes | `CsvImporter` raises `UnicodeDecodeError` |
-| `blank_timestamp_cell.csv` | blank `timestamp_ms` in row 2 | importer loads it with the blank as `None`; time validation happens in the controller (#129) |
+| `error_empty.csv` | zero bytes | a no-data error; the previous session stays available |
+| `error_bad_encoding.csv` | invalid UTF-8 bytes | a decoding error with the filename and a UTF-8 recovery suggestion; the previous session stays available |
+| `blank_timestamp_cell.csv` | blank `timestamp_ms` in row 2 | a warning; the original row stays in the table and is omitted from time plots |
 
 ## Legacy (`legacy/`)
 

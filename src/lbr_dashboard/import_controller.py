@@ -213,10 +213,12 @@ class ImportController(QObject):
             self.window.show_load_error(str(self.path), detail.reason)
             self.window.show_import_error(detail.reason, detail.recovery, detail.details)
         elif session is not None:
+            assert self.path is not None
             self.present(session)
             self.window.set_import_state(
                 "ready",
-                "CSV loaded. Select a numeric column to plot." + (" " + detail if detail else ""),
+                f"CSV loaded: {self.path.name}. Select a numeric column to plot."
+                + (" " + detail if detail else ""),
             )
 
     def close(self) -> bool:
