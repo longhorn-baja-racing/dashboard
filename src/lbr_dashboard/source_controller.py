@@ -177,6 +177,7 @@ class SourceController(QObject):
         if self.source is not None or self._preparing is not None or self.session is not None:
             self.disconnect()
             self.session = None
+            self.window.workspace_docks.update_snapshot(None)
             self._legacy_loaded = True
             self._notice = (
                 "Legacy CSV table loaded. Use the source picker for timestamped sessions."
@@ -362,6 +363,7 @@ class SourceController(QObject):
         if self.session is None:
             return
         snapshot = self.session.snapshot()
+        self.window.workspace_docks.update_snapshot(snapshot)
         descriptors = snapshot.schema.signals
         browser = self.window.left_panel.signal_browser
         previous_id = browser.selected_id
