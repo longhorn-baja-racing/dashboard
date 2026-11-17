@@ -7,10 +7,10 @@ The two explicit themes define their own colors.
 In Light and Dark, selected rows have distinct foreground and background
 colors, controls get a visible keyboard focus border, and disabled controls
 remain readable. Plot labels and tick marks use the theme foreground. The
-trace color stays stable when switching themes. Selection and status still have
-text labels.
+trace and cursor colors stay stable when switching themes in the primary and
+docked plots. The signal browser still labels availability in text.
 
-The current change is based on the preferences PR (#126). Plot styling on the
-newer time-plot and signal-browser stack still needs integration. Run
+The integration includes the preferences (#126) and shared cursor (#167)
+branches. Run
 `uv run --locked pytest tests/ui/test_accessible_theme.py` to verify color
 contrast, trace stability and restoring a saved theme.

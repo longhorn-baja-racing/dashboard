@@ -4,9 +4,10 @@ import pytest
 from PySide6.QtGui import QColor, QPalette
 
 from lbr_dashboard.app import create_main_window
-from lbr_dashboard.core import PreferencesStore
+from lbr_dashboard.core import PreferencesStore, SignalDescriptor, SignalSchema
 from lbr_dashboard.preferences_controller import PreferencesController
-from lbr_dashboard.ui.right_panel.right_panel import TRACE_COLOR
+from lbr_dashboard.source_controller import SourceController
+from lbr_dashboard.ui.plot_style import CURSOR_COLOR, TRACE_COLOR
 
 
 def contrast(first, second):
@@ -60,3 +61,47 @@ def test_saved_theme_has_readable_palette_and_existing_trace(qtbot, tmp_path, th
     controller.set_theme(new_theme)
     assert plot.listDataItems()[0] is curve
     assert curve.opts["pen"].color() == QColor(TRACE_COLOR)
+
+
+def test_theme_switch_updates_live_widgets_and_late_docks(qtbot, tmp_path):
+    window = create_main_window(preferences_store=PreferencesStore(tmp_path / "prefs.json"))
+    owner = window.source_owner
+    controller = window.preferences_controller
+    assert isinstance(owner, SourceController) and isinstance(controller, PreferencesController)
+    path = tmp_path / "theme.csv"
+    path.write_text("timestamp_ms,signal\n0,0\n10,2\n20,3\n", encoding="utf-8")
+    window.show()
+    try:
+        controller.set_theme("light")
+        owner.open_csv(path)
+        qtbot.waitUntil(lambda: owner._finished_rendered and owner.replay.cursor is not None)
+        workspace = window.workspace_docks
+        dock = workspace.add("plot")
+        dock.bind_selected()
+        qtbot.waitUntil(lambda: dock.cursor is not None)
+        assert dock.plot is not None and dock.cursor is not None
+        browser = window.left_panel.signal_browser
+        base = QColor("#ffffff")
+        assert contrast(QColor(CURSOR_COLOR), base) >= 3
+        assert dock.plot.backgroundBrush().color() == base
+
+        controller.set_theme("dark")
+        base = QColor("#202020")
+        assert contrast(QColor(CURSOR_COLOR), base) >= 3
+        assert dock.plot.backgroundBrush().color() == base
+        curve = window.right_panel.time_plot.curve
+        assert curve is not None
+        plot = dock.plot.getPlotItem()
+        assert plot is not None
+        assert curve.opts["pen"].color() == plot.listDataItems()[0].opts["pen"].color()
+
+        descriptor = SignalDescriptor("bench.missing", "Missing", ("bench",), "numeric", "demo")
+        browser.refresh(SignalSchema(1, (descriptor,)), {descriptor.identifier: (False, "Offline")})
+        row = browser.model.item(0).child(0, 2)
+        assert row.text() == "Unavailable"
+        assert contrast(row.foreground().color(), base) >= 4.5
+    finally:
+        owner.disconnect()
+        qtbot.waitUntil(lambda: owner.source is None and owner._preparing is None)
+        window.close()
+        window.deleteLater()

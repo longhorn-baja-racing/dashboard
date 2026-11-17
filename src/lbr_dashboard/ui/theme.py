@@ -40,6 +40,8 @@ def apply_theme(window: MainWindow, theme: str) -> None:
     window.setStyleSheet("")
     window.left_panel.setStyleSheet("")
     window.left_panel.list_widget.setStyleSheet("")
+    window.right_panel.setStyleSheet("")
+    window.right_panel.table.setStyleSheet("")
     for widget in (window, *window.findChildren(QWidget)):
         widget.setPalette(palette)
     background = palette.color(QPalette.ColorRole.Window).name()
@@ -52,11 +54,11 @@ def apply_theme(window: MainWindow, theme: str) -> None:
         "QMainWindow, QMenuBar, QMenu, QToolBar, QToolButton, QPushButton, "
         "QDockWidget, QStatusBar "
         f"{{ background-color: {background}; color: {text}; }}"
-        f"QListWidget, QTableWidget, QPlainTextEdit "
+        f"QListWidget, QTableWidget, QPlainTextEdit, QTreeView "
         f"{{ background-color: {base}; color: {text}; }}"
         f"QHeaderView, QHeaderView::section, QTableCornerButton::section "
         f"{{ background-color: {background}; color: {text}; }}"
-        "QTableWidget::item:selected, QListWidget::item:selected "
+        "QTableWidget::item:selected, QListWidget::item:selected, QTreeView::item:selected "
         f"{{ background-color: {accent}; color: {selected}; }}"
         "QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus "
         f"{{ border: 2px solid {accent}; }}"
@@ -65,6 +67,7 @@ def apply_theme(window: MainWindow, theme: str) -> None:
     )
     window.left_panel.setAutoFillBackground(True)
     window.right_panel.setAutoFillBackground(True)
-    window.right_panel.set_theme_colors(
-        palette.color(QPalette.ColorRole.Base).name(), palette.color(QPalette.ColorRole.Text).name()
-    )
+    window.left_panel.signal_browser.apply_palette(palette)
+    plot_text = palette.color(QPalette.ColorRole.Text).name()
+    window.right_panel.set_theme_colors(base, plot_text)
+    window.workspace_docks.set_plot_colors(base, plot_text)

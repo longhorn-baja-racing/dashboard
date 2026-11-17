@@ -7,12 +7,19 @@ from math import isfinite
 
 import pyqtgraph as pg
 from PySide6.QtCore import QSignalBlocker, Qt
-from PySide6.QtWidgets import QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...core.log import NumericColumn
-
-# Contrast against both explicit plot backgrounds; keeps the same signal cue on theme switch.
-TRACE_COLOR = "#007ba3"
+from ..plot_style import TRACE_COLOR, apply_plot_colors
+from ..time_plot import TimePlot
 
 
 class RightPanel(QWidget):
@@ -27,8 +34,15 @@ class RightPanel(QWidget):
         self.plot_widget.setTitle("Select a column to plot", color=self._text_color)
         self.plot_widget.getAxis("bottom").setPen(pg.mkPen("#cccccc"))
         self.plot_widget.getAxis("left").setPen(pg.mkPen("#cccccc"))
+        self.time_plot = TimePlot(self.plot_widget)
+        self.fit_plot = QPushButton("Fit plot")
+        self.fit_plot.clicked.connect(self.time_plot.fit)
+        self.fit_plot.hide()
+        self.selected_reading = QLabel("Selected: no aligned reading")
+        self.selected_reading.setTextFormat(Qt.TextFormat.PlainText)
 
         self.table = QTableWidget()
+        self.legacy_edit_triggers = self.table.editTriggers()
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.plot_widget)
@@ -38,20 +52,14 @@ class RightPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.fit_plot, alignment=Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.selected_reading)
         layout.addWidget(splitter)
 
     def set_theme_colors(self, background: str, text: str) -> None:
         """Recolor existing presentation without changing plotted/table data."""
         self._text_color = text
-        self.plot_widget.setBackground(background)
-        for name in ("bottom", "left"):
-            axis = self.plot_widget.getAxis(name)
-            axis.setPen(pg.mkPen(text))
-            axis.setTextPen(pg.mkPen(text))
-            axis.setLabel(axis.labelText, units=axis.labelUnits, color=text)
-        plot = self.plot_widget.getPlotItem()
-        if plot is not None:
-            plot.setTitle(plot.titleLabel.text, color=text)
+        apply_plot_colors(self.plot_widget, background, text)
 
     def set_table(self, headers: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
         """Render rows without retaining the imported model or numeric arrays."""
@@ -75,6 +83,8 @@ class RightPanel(QWidget):
         self._reset_plot()
 
     def _reset_plot(self) -> None:
+        self.time_plot.clear()
+        self.fit_plot.hide()
         self.plot_widget.clear()
         self.plot_widget.enableAutoRange()
         self.plot_widget.setTitle("Select a column to plot", color=self._text_color)
