@@ -82,7 +82,7 @@ class SignalDock(QDockWidget):
         try:
             if not mime.hasFormat(MIME_TYPE) or not 0 < raw.size() <= 4096:
                 raise ValueError
-            payload = json.loads(raw.data())
+            payload = json.loads(bytes(raw.data()))
             if type(payload["version"]) is not int or payload["version"] != 1:
                 raise ValueError
             (signal,) = payload["signals"]
