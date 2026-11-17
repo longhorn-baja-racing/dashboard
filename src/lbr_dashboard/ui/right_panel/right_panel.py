@@ -11,6 +11,9 @@ from PySide6.QtWidgets import QSplitter, QTableWidget, QTableWidgetItem, QVBoxLa
 
 from ...core.log import NumericColumn
 
+# Contrast against both explicit plot backgrounds; keeps the same signal cue on theme switch.
+TRACE_COLOR = "#007ba3"
+
 
 class RightPanel(QWidget):
     """Display a selected column as a plot and retain the CSV table view."""
@@ -45,6 +48,7 @@ class RightPanel(QWidget):
             axis = self.plot_widget.getAxis(name)
             axis.setPen(pg.mkPen(text))
             axis.setTextPen(pg.mkPen(text))
+            axis.setLabel(axis.labelText, units=axis.labelUnits, color=text)
         plot = self.plot_widget.getPlotItem()
         if plot is not None:
             plot.setTitle(plot.titleLabel.text, color=text)
@@ -117,12 +121,12 @@ class RightPanel(QWidget):
         self.plot_widget.plot(
             list(xs),
             list(ys),
-            pen=pg.mkPen("#00aaff", width=2),
+            pen=pg.mkPen(TRACE_COLOR, width=2),
             symbol="o",
             symbolSize=6,
-            symbolBrush="#00aaff",
+            symbolBrush=TRACE_COLOR,
         )
         self.plot_widget.enableAutoRange()
         self.plot_widget.setTitle(column_name, color=self._text_color)
-        self.plot_widget.setLabel("bottom", x_label)
-        self.plot_widget.setLabel("left", column_name)
+        self.plot_widget.setLabel("bottom", x_label, color=self._text_color)
+        self.plot_widget.setLabel("left", column_name, color=self._text_color)
