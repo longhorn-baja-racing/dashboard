@@ -26,6 +26,8 @@ class SignalDock(QDockWidget):
         self.kind = kind
         self.workspace = workspace
         self.binding: tuple[str, str] | None = None
+        self.origin_ns: int | None = None
+        self.cursor: pg.InfiniteLine | None = None
         self.setAcceptDrops(True)
         self.feedback = QLabel("Drop a signal or use Bind selected signal.")
         self.feedback.setTextFormat(Qt.TextFormat.PlainText)
@@ -33,6 +35,9 @@ class SignalDock(QDockWidget):
         self.readout = QLabel()
         self.readout.setTextFormat(Qt.TextFormat.PlainText)
         self.readout.setWordWrap(True)
+        self.selected_reading = QLabel("Selected: no aligned reading")
+        self.selected_reading.setTextFormat(Qt.TextFormat.PlainText)
+        self.selected_reading.setWordWrap(True)
         self.plot = pg.PlotWidget() if kind == "plot" else None
         bind = QPushButton("Bind selected signal")
         bind.clicked.connect(self.bind_selected)
@@ -42,6 +47,7 @@ class SignalDock(QDockWidget):
         layout = QVBoxLayout(body)
         layout.addWidget(self.feedback)
         layout.addWidget(self.readout)
+        layout.addWidget(self.selected_reading)
         if self.plot is not None:
             self.plot.setLabel("bottom", "Time since first shown reading", units="s")
             layout.addWidget(self.plot)
@@ -101,6 +107,7 @@ class SignalDock(QDockWidget):
             event.ignore()
 
     def render(self) -> None:
+        self.origin_ns = None
         if self.plot is not None:
             self.plot.clear()
             self.plot.setLabel("left", "Value")
@@ -124,6 +131,7 @@ class SignalDock(QDockWidget):
         if self.plot is not None:
             self.plot.setLabel("left", escape(descriptor.display_name), units=escape(unit))
             origin = records[0].sample.timestamp_ns
+            self.origin_ns = origin
             times = [(record.sample.timestamp_ns - origin) / 1e9 for record in records]
             values = [self._numeric_value(record.sample.value) for record in records]
             self.plot.plot(

@@ -217,19 +217,29 @@ def test_cursor_gesture_uses_the_shared_clock_and_exposes_missing_readings(
     assert cursor is not None
     panel = window.right_panel
     assert panel.selected_reading.text() == "Selected: 0.0 at 0 ns"
+    workspace = window.workspace_docks
+    other = workspace.add("plot")
+    readout = workspace.add("value")
+    other.bind_selected()
+    readout.bind_selected()
+    qtbot.waitUntil(lambda: other.cursor is not None)
+    second_cursor = other.cursor
+    assert second_cursor is not None and second_cursor is not cursor
 
-    for position, time, message in (
-        (0.03, 30_000_000, "Selected: 7.0 at 30000000 ns"),
-        (0.01, 10_000_000, "Selected: no available reading"),
-        (0.025, 25_000_000, "Selected: no available reading"),
-        (0.0, 0, "Selected: 0.0 at 0 ns"),
+    for moved, position, time, message in (
+        (cursor, 0.03, 30_000_000, "Selected: 7.0 at 30000000 ns"),
+        (second_cursor, 0.01, 10_000_000, "Selected: no available reading"),
+        (cursor, 0.025, 25_000_000, "Selected: no available reading"),
+        (second_cursor, 0.0, 0, "Selected: 0.0 at 0 ns"),
     ):
         previous = replay.clock.snapshot().selected_ns
-        cursor.setValue(position)
+        moved.setValue(position)
         assert replay.clock.snapshot().selected_ns == previous
-        cursor.sigPositionChangeFinished.emit(cursor)
+        moved.sigPositionChangeFinished.emit(moved)
         assert replay.clock.snapshot().selected_ns == time
+        assert cursor.value() == second_cursor.value() == position
         assert panel.selected_reading.text() == message
+        assert other.selected_reading.text() == readout.selected_reading.text() == message
         assert window.replay_bar.slider.value() == round(time / 30_000_000 * SLIDER_STEPS)
 
 

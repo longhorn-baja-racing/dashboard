@@ -21,9 +21,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .core import PlaybackMode, SessionClock, SessionSnapshot, TelemetrySession
+from .core import (
+    ClockSnapshot,
+    PlaybackMode,
+    SessionClock,
+    SessionSnapshot,
+    SignalDescriptor,
+    TelemetrySession,
+)
 from .ui.main_window import MainWindow
 from .ui.replay_bar import SLIDER_STEPS
+
+
+def selected_reading(view: SessionSnapshot, descriptor: SignalDescriptor, selected_ns: int) -> str:
+    rate = descriptor.nominal_rate_hz
+    # Without a declared cadence, require an exact measured timestamp.
+    tolerance = min(500_000_000 / rate, 2**63 - 1) if rate else 0
+    sample = view.nearest(descriptor.identifier, selected_ns, max_distance_ns=int(tolerance))
+    if sample is None or not sample.sample.available:
+        return "Selected: no available reading"
+    reading = sample.sample
+    unit = reading.unit or descriptor.canonical_unit
+    return f"Selected: {reading.value}{' ' + unit if unit else ''} at {reading.timestamp_ns} ns"
 
 
 class ReplayController(QObject):
@@ -172,30 +191,67 @@ class ReplayController(QObject):
                 self.cursor.setValue((frame.selected_ns - panel.time_plot.origin_ns) / 1e9)
             self.cursor.show()
             assert view is not None and descriptor is not None
-            rate = descriptor.nominal_rate_hz
-            # Without a declared cadence, require an exact measured timestamp.
-            tolerance = min(500_000_000 / rate, 2**63 - 1) if rate else 0
-            sample = view.nearest(
-                descriptor.identifier, frame.selected_ns, max_distance_ns=int(tolerance)
-            )
-            if sample is not None and sample.sample.available:
-                reading = sample.sample
-                value = str(reading.value)
-                unit = reading.unit or descriptor.canonical_unit
-                readout.setText(
-                    f"Selected: {value}{' ' + unit if unit else ''} at {reading.timestamp_ns} ns"
-                )
-            else:
-                readout.setText("Selected: no available reading")
+            readout.setText(selected_reading(view, descriptor, frame.selected_ns))
         else:
             if self.cursor is not None:
                 self.cursor.hide()
             readout.setText("Selected: no aligned reading")
+        self._present_docks(frame, view)
+
+    def _present_docks(self, frame: ClockSnapshot, view: SessionSnapshot | None) -> None:
+        workspace = self.window.workspace_docks
+        for dock in workspace.docks.values():
+            if dock.cursor is not None and dock.cursor.scene() is None:
+                dock.cursor = None
+            descriptor = workspace.descriptor(dock.binding[0]) if dock.binding else None
+            if (
+                view is None
+                or frame.reference is None
+                or frame.selected_ns is None
+                or descriptor is None
+                or descriptor.source_id != frame.reference[1]
+                or dock.binding != (descriptor.identifier, frame.reference[1])
+                or descriptor.identifier not in view.series
+                or view.domains.get(descriptor.identifier, descriptor.timestamp_domain)
+                != frame.reference[2]
+            ):
+                dock.selected_reading.setText("Selected: no aligned reading")
+                if dock.cursor is not None:
+                    dock.cursor.hide()
+                continue
+
+            dock.selected_reading.setText(selected_reading(view, descriptor, frame.selected_ns))
+            if dock.plot is None or dock.origin_ns is None:
+                continue
+            plot = dock.plot.getPlotItem()
+            if plot is None:
+                continue
+            if dock.cursor is None:
+                dock.cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("#ffcc00", width=2))
+                dock.cursor.sigPositionChangeFinished.connect(self._cursor_dragged)
+                plot.addItem(dock.cursor, ignoreBounds=True)
+            dock.cursor.setMovable(not self._live and self._ready and not self._busy)
+            if not dock.cursor.moving:
+                dock.cursor.setValue((frame.selected_ns - dock.origin_ns) / 1e9)
+            dock.cursor.show()
 
     def _cursor_dragged(self, cursor: pg.InfiniteLine) -> None:
-        if cursor is not self.cursor or self._live or self._busy or not self._ready:
+        if self._live or self._busy or not self._ready or not cursor.isVisible():
             return
         panel = self.window.right_panel
+        if cursor is self.cursor:
+            origin = panel.time_plot.origin_ns
+        else:
+            origin = next(
+                (
+                    dock.origin_ns
+                    for dock in self.window.workspace_docks.docks.values()
+                    if dock.cursor is cursor
+                ),
+                None,
+            )
+            if origin is None:
+                return
         frame = self.clock.snapshot()
         position = cursor.value()
         if (
@@ -206,7 +262,6 @@ class ReplayController(QObject):
         ):
             self.present()
             return
-        origin = panel.time_plot.origin_ns
         low = (frame.start_ns - origin) / 1e9
         high = (frame.end_ns - origin) / 1e9
         target = (
