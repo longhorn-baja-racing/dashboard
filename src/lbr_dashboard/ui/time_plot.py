@@ -138,18 +138,7 @@ class TimePlot(QObject):
         self.timer.stop()
         if self.query is None or self.curve is None:
             return
-        start, end = self.bounds
-        if not self.fitted:
-            low, high = self.view.viewRange()[0]
-            first = (start - self.origin_ns) / NANOSECONDS
-            last = (end - self.origin_ns) / NANOSECONDS
-            if low > last or high < first:
-                start = end + 1
-            else:
-                if low > first:
-                    start = self.origin_ns + floor(low * NANOSECONDS)
-                if high < last:
-                    end = self.origin_ns + ceil(high * NANOSECONDS)
+        start, end = self.visible_bounds(self.bounds)
         records = self.query(start, end) if start <= end else ()
         xs, ys, connects = render_points(records, self.origin_ns)
         self.curve.setData(
@@ -163,6 +152,7 @@ class TimePlot(QObject):
         if self.fitted or self._fit_visible_y:
             visible = np.isfinite(ys)
             if not self.fitted:
+                low, high = self.view.viewRange()[0]
                 visible &= (xs >= low) & (xs <= high)
             valid = ys[visible]
             self._fit_visible_y = False
@@ -175,3 +165,19 @@ class TimePlot(QObject):
                     self.view.setYRange(float(valid.min()), float(valid.max()), padding=0.05)
             finally:
                 self._setting_range = False
+
+    def visible_bounds(self, bounds: tuple[int, int]) -> tuple[int, int]:
+        """Clip a trace query to the shared viewport without rounding away nanoseconds."""
+        start, end = bounds
+        if not self.fitted:
+            low, high = self.view.viewRange()[0]
+            first = (start - self.origin_ns) / NANOSECONDS
+            last = (end - self.origin_ns) / NANOSECONDS
+            if low > last or high < first:
+                start = end + 1
+            else:
+                if low > first:
+                    start = self.origin_ns + floor(low * NANOSECONDS)
+                if high < last:
+                    end = self.origin_ns + ceil(high * NANOSECONDS)
+        return start, end
