@@ -25,19 +25,24 @@ def load(window, path, qtbot):
     qtbot.waitUntil(lambda: window.import_state != "loading")
 
 
-def test_large_log_keeps_full_plot_and_bounds_only_table(window, qtbot, tmp_path):
+def test_large_log_keeps_full_plot_and_bounds_table_and_markers(window, qtbot, tmp_path):
     path = tmp_path / "large.csv"
-    path.write_text(
-        ",".join(["timestamp_ms"] + [f"signal{i}" for i in range(15)])
-        + "\n"
-        + "".join(",".join([str(i)] * 16) + "\n" for i in range(4000))
-    )
-    load(window, path, qtbot)
+    with path.open("w", encoding="utf-8") as file:
+        file.write(",".join(["Timestamp_ms"] + [f"signal{i}" for i in range(15)]) + "\n")
+        for i in range(100_000):
+            file.write(",".join([str(i)] * 15 + [str(-i)]) + "\n")
+    controller(window).import_controller.start(path)
+    qtbot.waitUntil(lambda: window.import_state != "loading", timeout=20_000)
     assert window.import_state == "ready", window.import_message.text()
     trace = window.right_panel.plot_widget.getPlotItem().listDataItems()[0]
-    assert len(trace.getData()[1]) == 4000 and trace.getData()[1][-1] == 3999
+    xs, ys = trace.getData()
+    assert len(xs) == len(ys) == 100_000 and xs[-1] == ys[-1] == 99_999
+    assert trace.opts["symbol"] is None
     assert window.right_panel.table.rowCount() <= 1000
-    assert "4,000" in window.right_panel.table_summary.text()
+    assert "100,000" in window.right_panel.table_summary.text()
+    window.left_panel.list_widget.setCurrentRow(15)
+    trace = window.right_panel.plot_widget.getPlotItem().listDataItems()[0]
+    assert len(trace.getData()[1]) == 100_000 and trace.getData()[1][-1] == -99_999
 
 
 @pytest.mark.parametrize("tail", ["\n\n", "20,3\n\n"])
