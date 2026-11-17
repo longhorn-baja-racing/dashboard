@@ -204,6 +204,35 @@ def test_large_exact_timestamp_slider_and_single_sample(transport):
     assert not window.replay_bar.play.isEnabled() and not window.replay_bar.slider.isEnabled()
 
 
+def test_cursor_gesture_uses_the_shared_clock_and_exposes_missing_readings(
+    transport, qtbot, tmp_path
+):
+    window, owner, _ = transport
+    path = tmp_path / "clock.csv"
+    path.write_text("timestamp_ms,pressure\n0,0\n10,\n30,7\n", encoding="utf-8")
+    owner.open_csv(path)
+    replay = owner.replay
+    qtbot.waitUntil(lambda: owner._finished_rendered and replay.cursor is not None)
+    cursor = replay.cursor
+    assert cursor is not None
+    panel = window.right_panel
+    assert panel.selected_reading.text() == "Selected: 0.0 at 0 ns"
+
+    for position, time, message in (
+        (0.03, 30_000_000, "Selected: 7.0 at 30000000 ns"),
+        (0.01, 10_000_000, "Selected: no available reading"),
+        (0.025, 25_000_000, "Selected: no available reading"),
+        (0.0, 0, "Selected: 0.0 at 0 ns"),
+    ):
+        previous = replay.clock.snapshot().selected_ns
+        cursor.setValue(position)
+        assert replay.clock.snapshot().selected_ns == previous
+        cursor.sigPositionChangeFinished.emit(cursor)
+        assert replay.clock.snapshot().selected_ns == time
+        assert panel.selected_reading.text() == message
+        assert window.replay_bar.slider.value() == round(time / 30_000_000 * SLIDER_STEPS)
+
+
 def test_live_pause_follow_disconnect_and_finite_switch(transport, qtbot):
     window, owner, now = transport
     owner.choose("live")

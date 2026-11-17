@@ -37,6 +37,12 @@ The time display identifies its reference signal. The first signal with recorded
 data becomes that session's reference timeline. Mixed-rate signals keep their
 independent samples; playback does not resample or interpolate them.
 
+On a finite recording, drag the plot cursor and release it to seek and pause.
+The readout uses a measured sample within half the declared sampling period.
+Signals with no declared rate require an exact timestamp match. Unavailable
+samples and unmatched timestamps are shown as unavailable. Live cursors remain
+read-only, and signals from an unrelated clock domain have no aligned reading.
+
 ## Keyboard
 
 When focus is on the dashboard background or plot:

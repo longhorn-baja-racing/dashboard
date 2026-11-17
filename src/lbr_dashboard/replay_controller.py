@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import isfinite
 from time import monotonic_ns
 
 import pyqtgraph as pg
@@ -138,6 +139,7 @@ class ReplayController(QObject):
             else None
         )
         panel = self.window.right_panel
+        readout = panel.selected_reading
         plot = panel.plot_widget.getPlotItem()
         if self.cursor is not None and self.cursor.scene() is None:
             self.cursor = None
@@ -163,11 +165,59 @@ class ReplayController(QObject):
         ):
             if self.cursor is None:
                 self.cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("#ffcc00", width=2))
+                self.cursor.sigPositionChangeFinished.connect(self._cursor_dragged)
                 plot.addItem(self.cursor, ignoreBounds=True)
-            self.cursor.setValue((frame.selected_ns - panel.time_plot.origin_ns) / 1e9)
+            self.cursor.setMovable(not self._live and self._ready and not self._busy)
+            if not self.cursor.moving:
+                self.cursor.setValue((frame.selected_ns - panel.time_plot.origin_ns) / 1e9)
             self.cursor.show()
-        elif self.cursor is not None:
-            self.cursor.hide()
+            assert view is not None and descriptor is not None
+            rate = descriptor.nominal_rate_hz
+            # Without a declared cadence, require an exact measured timestamp.
+            tolerance = min(500_000_000 / rate, 2**63 - 1) if rate else 0
+            sample = view.nearest(
+                descriptor.identifier, frame.selected_ns, max_distance_ns=int(tolerance)
+            )
+            if sample is not None and sample.sample.available:
+                reading = sample.sample
+                value = str(reading.value)
+                unit = reading.unit or descriptor.canonical_unit
+                readout.setText(
+                    f"Selected: {value}{' ' + unit if unit else ''} at {reading.timestamp_ns} ns"
+                )
+            else:
+                readout.setText("Selected: no available reading")
+        else:
+            if self.cursor is not None:
+                self.cursor.hide()
+            readout.setText("Selected: no aligned reading")
+
+    def _cursor_dragged(self, cursor: pg.InfiniteLine) -> None:
+        if cursor is not self.cursor or self._live or self._busy or not self._ready:
+            return
+        panel = self.window.right_panel
+        frame = self.clock.snapshot()
+        position = cursor.value()
+        if (
+            frame.start_ns is None
+            or frame.end_ns is None
+            or not isinstance(position, (int, float))
+            or not isfinite(position)
+        ):
+            self.present()
+            return
+        origin = panel.time_plot.origin_ns
+        low = (frame.start_ns - origin) / 1e9
+        high = (frame.end_ns - origin) / 1e9
+        target = (
+            frame.start_ns
+            if position <= low
+            else frame.end_ns
+            if position >= high
+            else (origin + round(position * 1e9))
+        )
+        self.clock.seek(target)
+        self.present()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() != QEvent.Type.KeyPress or not isinstance(event, QKeyEvent):
