@@ -1,0 +1,6 @@
+timestamp_ms,chamber_temperature,flow_rate,valve_state
+0,21.5,0,closed
+100,22,12,open
+250,,14,open
+500,23.5,,closed
+1000,24,0,closed

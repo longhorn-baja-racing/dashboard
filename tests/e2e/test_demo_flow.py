@@ -4,9 +4,7 @@ Runs the real application window offscreen and drives it the way a user does
 (File > Open, the signal filter, checking a signal, the events list), then
 checks the plotted series against an independent read of the same file.
 
-Steps still to add as their features merge (#107):
-- play / pause / seek through the shared session clock (#22, #41)
-- switching the source to the deterministic simulator (#23, #35)
+The generic CSV and simulator replay path is covered in tests/ui/test_windows_demo.py.
 """
 
 from __future__ import annotations

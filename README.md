@@ -56,6 +56,30 @@ milestones in #101 cover a fuller local telemetry explorer (M1), optional real
 vehicle and live integrations (M2), Windows distribution (M3) and analysis
 features (M4).
 
+### Run the Windows demo
+
+From the repository folder in PowerShell, run:
+
+```powershell
+uv sync --locked --extra dev
+uv run --locked lbr-dashboard
+```
+
+1. In **Telemetry source**, choose **CSV replay - timestamp_ms preset**, click
+   **Open CSV / Connect**, and open
+   [sample_data/fixtures/timestamped_demo.csv](sample_data/fixtures/timestamped_demo.csv).
+2. Search the signal browser for `chamber_temperature` and select the result.
+   The trace starts at 21.5 and has a gap at 0.25 s. Select `flow_rate` to see
+   a second numeric trace, including real zeros. Select `valve_state` to read
+   its text values in the table.
+3. Select a numeric signal, press **Play**, then **Pause**, and move the replay
+   slider. Check the selected time and reading as the cursor moves.
+4. Choose **Simulator - process (finite)** and click **Open CSV / Connect**.
+   Find pressure (Pa) and temperature (°C) in the same browser and replay them.
+   Try **Simulator - motion (finite)** for a different set of signals.
+5. Click **Disconnect**. The source releases its worker and the recording stays
+   available for inspection. A failed CSV open also keeps the previous recording.
+
 ## Architecture direction
 
 - **Generic signals.** One schema describes arbitrary signals, each with its
