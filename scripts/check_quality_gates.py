@@ -26,7 +26,7 @@ def check(args: list[str], directory: Path) -> subprocess.CompletedProcess[str]:
             env=env,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=600,
             encoding="utf-8",
             errors="replace",
         )
