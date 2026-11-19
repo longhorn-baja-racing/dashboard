@@ -55,6 +55,21 @@ and widgets cannot import that layer, including `dashboard_controller`.
 
 ## Worker lifecycle
 
+The [generic simulator](simulator.md) supplies deterministic descriptors and
+mixed-rate records through the ordinary source queue; generation is independent
+of the selected-time replay clock.
+
+Replay and live-follow use one application-owned [session clock](session-clock.md).
+Its subscribers receive one immutable selected-time frame; widgets do not own
+independent playback clocks or timers.
+
+Sparse session storage, range/nearest queries, immutable snapshots, and bounded
+live retention are documented in [telemetry-sessions.md](telemetry-sessions.md).
+
+The concrete telemetry source lifecycle and bounded handoff are documented in
+[telemetry-sources.md](telemetry-sources.md). Sources own their worker/queue and
+expose persistent health; the older generic service below remains independent.
+
 `BackgroundService` owns one worker thread, event queue, and cancellation
 token. Worker code can only enqueue immutable events; it cannot call a UI
 callback. After the worker finishes, the owner calls `join`, reads `failure`
@@ -62,8 +77,19 @@ when needed, and drains queued events at its normal update boundary.
 
 ## Legacy CSV loading
 
+Generic descriptor and sparse sample contracts are documented in
+[signal-model.md](signal-model.md). They are independent of the legacy table
+importer and do not add a hardware or transport dependency.
+
 Columns are selected by physical index, so repeated display names retain their
 own values. Name lookup returns the first occurrence (including `timestamp_ms`).
 Non-finite numeric cells become unavailable values and are omitted from plots.
 Successful empty loads clear columns, table cells, and plots; missing cells in
 a replacement file cannot retain values from the previous file.
+
+## Local preferences
+
+Application-owned [local preferences](local-preferences.md) store theme and recent
+source defaults with validation, atomic replacement and backup recovery. Widgets
+request changes; the application saves before applying them. Machine-local paths
+are separate from portable workspace files (#49), and no telemetry is serialized.

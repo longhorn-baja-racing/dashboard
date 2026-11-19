@@ -21,8 +21,16 @@ class DashboardController:
         self._window = window
         self._log_store = LogSessionStore(importer)
         self._lbr_importer = lbr_importer or LbrCsvImporter()
+        self._selected_column = -1
         window.csv_requested.connect(self._on_csv_requested)
         window.column_selected.connect(self.select_column)
+        window.cell_edited.connect(self.edit_cell)
+
+    def edit_cell(self, row: int, column: int, text: str) -> None:
+        """Commit the displayed edit to the model before refreshing the selected plot."""
+        self._log_store.edit_cell(row, column, text)
+        self.select_column(self._selected_column)
+        self._window.statusBar().showMessage("Edited in memory; the source CSV file is unchanged.")
 
     def _on_csv_requested(self, file_path: str) -> None:
         """Report UI request failures before Qt can discard slot exceptions."""
@@ -46,6 +54,7 @@ class DashboardController:
         self._log_store.load(path)
         self._window.display_log(self._log_store.headers, self._log_store.rows)
         self._window.show_source_name(path.name)
+        self._window.csv_loaded.emit(str(file_path))
 
     def load_lbr_csv(self, path: Path) -> bool:
         """Open a firmware export; on failure keep what is shown and explain."""
@@ -62,6 +71,7 @@ class DashboardController:
             progress.close()
         self._window.display_lbr_session(session)
         self._window.show_source_name(path.name)
+        self._window.csv_loaded.emit(str(path))
         return True
 
     def select_column(self, column_index: int) -> None:
@@ -69,6 +79,7 @@ class DashboardController:
 
         if not 0 <= column_index < len(self._log_store.headers):
             return
+        self._selected_column = column_index
         column_name = self._log_store.headers[column_index]
         self._window.plot_column(
             column_name,

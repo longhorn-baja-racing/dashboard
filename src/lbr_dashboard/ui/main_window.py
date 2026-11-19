@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -14,14 +15,19 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QSplitter,
     QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..core.lbr_session import LbrSession
 from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
+from .docks import WorkspaceDocks
 from .lbr_session_view import LbrSessionView
 from .left_panel import LeftPanel
+from .replay_bar import ReplayBar
 from .right_panel import RightPanel
+from .source_picker import SourcePicker
 from .top_menu_bar import TopMenuBar
 
 
@@ -51,16 +57,28 @@ class ImportProgress:
         self._dialog.close()
 
 
+class SourceOwner(Protocol):
+    def close(self) -> bool: ...
+    def release_for_legacy(self) -> None: ...
+    def has_session(self) -> bool: ...
+
+
 class MainWindow(QMainWindow):
     """Main application window that coordinates imported data and presentation."""
 
     csv_requested = Signal(str)
+    csv_loaded = Signal(str)
+    theme_requested = Signal(str)
+    clear_recent_requested = Signal()
     csv_load_failed = Signal(str, str)
     column_selected = Signal(int)
+    cell_edited = Signal(int, int, str)
 
     def __init__(self) -> None:
         super().__init__()
         self._controller: CsvLoader | None = None
+        self.preferences_controller: object | None = None
+        self.source_owner: SourceOwner | None = None
         self.setWindowTitle("LBR Dashboard")
         self.resize(1200, 700)
 
@@ -90,19 +108,45 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.pages.addWidget(splitter)
         self.pages.addWidget(self.lbr_view)
-        self.setCentralWidget(self.pages)
         self.import_error: QMessageBox | None = None
+        self.source_picker = SourcePicker()
+        self.replay_bar = ReplayBar()
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.addWidget(self.source_picker)
+        layout.addWidget(self.replay_bar)
+        layout.addWidget(self.pages, 1)
+        self.setCentralWidget(container)
+        self.workspace_docks = WorkspaceDocks(
+            self, lambda: self.left_panel.signal_browser.selected_id
+        )
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
+        self.right_panel.table.itemChanged.connect(
+            lambda item: self.cell_edited.emit(item.row(), item.column(), item.text())
+        )
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.source_owner is not None and not self.source_owner.close():
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def attach_controller(self, controller: CsvLoader) -> None:
         """Keep the application controller alive without owning its model data."""
 
         self._controller = controller
 
+    def set_preference_choices(self, theme: str, recent_paths: tuple[str, ...]) -> None:
+        menu = self.menuBar()
+        if isinstance(menu, TopMenuBar):
+            menu.set_preference_choices(theme, recent_paths)
+
     def _select_column(self, column_index: int) -> None:
         """Highlight and plot the selected column, including the first selection."""
 
+        if self.source_owner is not None and self.source_owner.has_session():
+            return
         self.right_panel.highlight_column(column_index)
         if column_index < 0:
             return
@@ -132,8 +176,11 @@ class MainWindow(QMainWindow):
     def display_log(self, headers: tuple[str, ...], rows: tuple[tuple[str, ...], ...]) -> None:
         """Render an already imported session."""
 
+        if self.source_owner is not None:
+            self.source_owner.release_for_legacy()
         self.statusBar().clearMessage()
         self.pages.setCurrentIndex(0)
+        self.right_panel.table.setEditTriggers(self.right_panel.legacy_edit_triggers)
         self.right_panel.set_table(headers, rows)
         self.left_panel.set_columns(list(headers))
         self.left_panel.list_widget.setCurrentRow(0)
@@ -161,6 +208,8 @@ class MainWindow(QMainWindow):
     def display_lbr_session(self, session: LbrSession) -> None:
         """Show an imported firmware session in the session view."""
 
+        if self.source_owner is not None:
+            self.source_owner.release_for_legacy()
         self.statusBar().clearMessage()
         self.lbr_view.set_session(session)
         self.pages.setCurrentWidget(self.lbr_view)
