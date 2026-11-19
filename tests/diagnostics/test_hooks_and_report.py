@@ -19,6 +19,7 @@ from lbr_dashboard.diagnostics import (
     configure_logging,
     describe,
     install_exception_hooks,
+    logs,
     package_versions,
 )
 from lbr_dashboard.diagnostics import report as report_module
@@ -73,6 +74,22 @@ def test_main_thread_exception_is_logged_and_reported(session: DiagnosticsSessio
     assert [r.summary for r in reports] == ["ZeroDivisionError: division by zero"]
     assert any("Uncaught exception" in line for line in session.recent_records())
     assert any("Traceback" in line for line in session.recent_records())
+
+
+def test_uncaught_huge_exception_stays_within_log_bounds(session: DiagnosticsSession) -> None:
+    reports: list[ErrorReport] = []
+    restore = install_exception_hooks(reports.append)
+    try:
+        sys.excepthook(*raised(RuntimeError("q" * (2 * 1024 * 1024))))
+    finally:
+        restore()
+    assert session.file_handler is not None and session.log_file is not None
+    session.file_handler.flush()
+    assert session.log_file.stat().st_size < logs.MAX_RECORD_CHARS + 100
+    record = session.recent_records()[-1]
+    assert len(record) <= logs.MAX_RECORD_CHARS
+    assert "Uncaught exception" in record and "RuntimeError" in record
+    assert len(reports[0].summary) == 300
 
 
 def test_worker_thread_exception_is_reported_with_thread_name(session: DiagnosticsSession) -> None:

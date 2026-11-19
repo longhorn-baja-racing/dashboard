@@ -22,6 +22,7 @@ LOG_FILE_NAME = "dashboard.log"
 MAX_LOG_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 3
 MAX_MESSAGE_CHARS = 4000
+MAX_RECORD_CHARS = 16_000
 RECENT_LIMIT = 50
 
 LOG_DIR_ENV = "LBR_DASHBOARD_LOG_DIR"
@@ -66,8 +67,33 @@ def redact(text: str, home: str | None = None) -> str:
     return text
 
 
+def bound_text(text: str, limit: int = MAX_RECORD_CHARS) -> str:
+    """Cut ``text`` to at most ``limit`` characters, keeping its start and end.
+
+    The start of a formatted record holds the time, level and message, and the
+    end of a traceback holds the exception type and innermost frame, so both
+    ends are kept and the middle is replaced with a marker.
+    """
+
+    if len(text) <= limit:
+        return text
+    # Reserve room for the longest marker this text could need.
+    room = len(f"\n... [{len(text)} characters omitted] ...\n")
+    keep = max(limit - room, 0)
+    tail = keep // 4
+    head = keep - tail
+    marker = f"\n... [{len(text) - head - tail} characters omitted] ...\n"
+    return text[:head] + marker + (text[len(text) - tail :] if tail else "")
+
+
 class RedactingFormatter(logging.Formatter):
-    """Format, bound and redact a record, including any traceback."""
+    """Format, bound and redact a record, including any traceback.
+
+    The message is cut to :data:`MAX_MESSAGE_CHARS` first, then the complete
+    formatted record (message, exception text and stack) is cut to
+    :data:`MAX_RECORD_CHARS`, so an exception with a huge message or traceback
+    cannot grow a log file or the recent-record buffer without bound.
+    """
 
     def __init__(self, home: str | None = None) -> None:
         super().__init__(_FORMAT)
@@ -80,7 +106,8 @@ class RedactingFormatter(logging.Formatter):
             record = logging.makeLogRecord(record.__dict__)
             record.msg = f"{message[:MAX_MESSAGE_CHARS]}... [{omitted} characters omitted]"
             record.args = None
-        return redact(super().format(record), self._home)
+        # Redact before cutting so a cut never splits a secret or home path.
+        return bound_text(redact(super().format(record), self._home))
 
 
 class SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):

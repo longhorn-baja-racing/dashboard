@@ -125,6 +125,71 @@ def test_long_messages_are_truncated(session: DiagnosticsSession) -> None:
     assert len(text) < logs.MAX_MESSAGE_CHARS + 200
 
 
+def test_huge_exception_message_is_bounded_in_file_and_memory(tmp_path: Path) -> None:
+    # A 2 MiB exception message used to bypass the message bound because the
+    # formatter adds exception text after getMessage() is shortened.
+    stderr = io.StringIO()
+    active = configure_logging(tmp_path / "logs", environ={}, stderr=stderr, home="/home/driver")
+    try:
+        try:
+            raise ValueError("password=hunter2 " + "z" * (2 * 1024 * 1024) + " /home/driver/end")
+        except ValueError:
+            log.exception("worker failed")
+        text = read_log(active)
+        recent = active.recent_records()[-1]
+    finally:
+        active.close()
+    assert active.log_file is not None
+    assert active.log_file.stat().st_size < logs.MAX_RECORD_CHARS + 100
+    assert len(recent) <= logs.MAX_RECORD_CHARS
+    assert len(stderr.getvalue()) <= logs.MAX_RECORD_CHARS + 1
+    assert recent.startswith(text.splitlines()[0])
+    assert "worker failed" in recent and "Traceback" in recent and "ValueError" in recent
+    assert "characters omitted" in recent
+    assert recent.endswith("~/end")
+    assert "hunter2" not in text and "/home/driver" not in text
+
+
+def test_long_traceback_keeps_its_exception_type(session: DiagnosticsSession) -> None:
+    # Alternate two functions so Python does not fold the repeated frames.
+    def ping(depth: int) -> None:
+        if depth == 0:
+            raise KeyError("innermost")
+        pong(depth - 1)
+
+    def pong(depth: int) -> None:
+        ping(depth)
+
+    try:
+        ping(200)
+    except KeyError:
+        log.exception("deep failure")
+    recent = session.recent_records()[-1]
+    assert len(recent) <= logs.MAX_RECORD_CHARS
+    assert "deep failure" in recent and "characters omitted" in recent
+    assert recent.rstrip().endswith("KeyError: 'innermost'")
+
+
+def test_stack_info_counts_toward_the_record_bound(session: DiagnosticsSession) -> None:
+    log.warning("%s", "s" * (logs.MAX_MESSAGE_CHARS * 2), stack_info=True)
+    assert len(session.recent_records()[-1]) <= logs.MAX_RECORD_CHARS
+
+
+@pytest.mark.parametrize("length", [0, 10, logs.MAX_RECORD_CHARS, logs.MAX_RECORD_CHARS + 1, 10**6])
+def test_bound_text_never_exceeds_its_limit(length: int) -> None:
+    text = "".join(chr(ord("a") + index % 26) for index in range(length))
+    bounded = logs.bound_text(text)
+    assert len(bounded) <= logs.MAX_RECORD_CHARS
+    if length <= logs.MAX_RECORD_CHARS:
+        assert bounded == text
+    else:
+        head, tail = bounded.split("characters omitted] ...\n")
+        assert text.startswith(head.rsplit("\n... [", 1)[0])
+        assert text.endswith(tail)
+        omitted = int(head.rsplit("[", 1)[1].strip())
+        assert len(head.rsplit("\n... [", 1)[0]) + omitted + len(tail) == length
+
+
 def test_rotation_keeps_disk_usage_bounded(tmp_path: Path) -> None:
     directory = tmp_path / "logs"
     active = configure_logging(

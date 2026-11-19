@@ -27,6 +27,11 @@ Environment overrides:
   use at most 4 MiB.
 - A single message is cut to 4000 characters, so a bug can never dump a large
   block of telemetry into the log.
+- The whole formatted record, including any traceback and stack, is cut to
+  16000 characters. The start (time, level, message) and the end (exception
+  type and innermost frame) are kept and the middle is replaced with
+  `... [N characters omitted] ...`. This also applies to the recent list and
+  stderr, so an exception with a huge message cannot outgrow these bounds.
 - The in-memory list of recent warnings and errors keeps the newest 50.
 
 ## What is kept out
