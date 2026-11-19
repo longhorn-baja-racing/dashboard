@@ -175,12 +175,47 @@ def test_evaluate_row_reports_failure() -> None:
         pytest.param(math.nan, id="nan"),
         pytest.param(math.inf, id="inf"),
         pytest.param(-math.inf, id="neg-inf"),
+        pytest.param(10**400, id="int-beyond-float"),
+        pytest.param(-(10**400), id="neg-int-beyond-float"),
     ],
 )
 def test_missing_input_values(bad: float | None) -> None:
     result = evaluate(define(f'sig("{TEMP}") + 1'), {TEMP: series([0, 1], [bad, 1.0])})
     assert result.values == (None, 2.0)
     assert result.missing[0] == Missing(MissingReason.MISSING_INPUT, TEMP)
+
+
+def test_integer_beyond_float_range_is_missing_only_for_its_own_sample() -> None:
+    x = series([0, 10, 20], [1, 10**400, 3])
+    result = evaluate(define('sig("x")'), {"x": x})
+    assert result.times_ns == (0, 10, 20)
+    assert result.values == (1.0, None, 3.0)
+    assert result.missing == (None, Missing(MissingReason.MISSING_INPUT, "x"), None)
+    assert result.missing_count == 1
+
+
+def test_held_integer_beyond_float_range_is_missing_then_recovers() -> None:
+    reference = series([0, 10, 20, 30], [1.0, 1.0, 1.0, 1.0])
+    held = series([0, 10, 30], [2, -(10**400), 4])
+    definition = define('sig("r") + sig("h")', reference_id="r", max_age_ns=10)
+    result = evaluate(definition, {"r": reference, "h": held})
+    assert result.values == (3.0, None, None, 5.0)
+    assert result.missing[1:3] == (Missing(MissingReason.MISSING_INPUT, "h"),) * 2
+
+
+def test_integer_beyond_float_range_in_a_chain_marks_downstream_missing() -> None:
+    first = define('sig("x") * 2', output_id="first")
+    second = define('sig("first") + 1', output_id="second")
+    results = evaluate_all([second, first], {"x": series([0, 1, 2], [1, 10**400, 3])})
+    assert results["first"].values == (2.0, None, 6.0)
+    assert results["second"].values == (3.0, None, 7.0)
+    assert results["second"].missing[1] == Missing(MissingReason.MISSING_INPUT, "first")
+
+
+def test_large_integers_that_fit_in_a_float_are_used() -> None:
+    result = evaluate(define('sig("x") / 2'), {"x": series([0, 1], [10**300, 7])})
+    assert result.values == (5e299, 3.5)
+    assert result.missing == (None, None)
 
 
 # ---------------------------------------------------------------------------

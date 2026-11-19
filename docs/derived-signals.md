@@ -140,7 +140,7 @@ and evaluation does not raise for per-sample problems.
 
 | Reason | When |
 | --- | --- |
-| `missing_input` | the selected input sample is `None`, NaN or +/-inf; there is no fallback to an older sample |
+| `missing_input` | the selected input sample is `None`, NaN, +/-inf or a number too large for a float (such as `10**400`); there is no fallback to an older sample |
 | `stale_input` | an input has no sample at or within `max_age_ns` before `t` |
 | `division_by_zero` | the right side of `/` is zero |
 | `domain_error` | `sqrt` of a negative number |

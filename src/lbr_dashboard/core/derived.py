@@ -213,7 +213,7 @@ def normalize_unit(text: str | None) -> str:
 class MissingReason(Enum):
     """Why an output sample has no value."""
 
-    MISSING_INPUT = "missing_input"  # the selected input sample is None, NaN or +/-inf
+    MISSING_INPUT = "missing_input"  # the selected sample is None, NaN, +/-inf or too large
     STALE_INPUT = "stale_input"  # no input sample at or within max_age_ns before t
     DIVISION_BY_ZERO = "division_by_zero"
     DOMAIN_ERROR = "domain_error"  # sqrt of a negative number
@@ -768,8 +768,8 @@ def order_definitions(
 class SignalInput:
     """One input signal: non-decreasing ``times_ns``, ``values`` and a unit.
 
-    ``None``, NaN and +/-inf values are missing. The sequences are read, never
-    modified or copied.
+    ``None``, NaN, +/-inf and numbers too large for a float (such as a huge
+    ``int``) are missing. The sequences are read, never modified or copied.
     """
 
     times_ns: Sequence[int]
@@ -789,6 +789,23 @@ class SignalInput:
                     f"is before index {index} ({earlier})"
                 )
         parse_unit(self.unit)
+
+
+def _sample_value(value: float | None) -> float | None:
+    """Return an input sample as a finite float, or ``None`` when it is missing.
+
+    Integers are valid samples but are unbounded, and ``float()`` or
+    ``math.isfinite()`` raise ``OverflowError`` for one beyond the float range.
+    Such a sample is treated like NaN so only its own output is missing.
+    """
+
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -872,11 +889,11 @@ def evaluate(
                     problem = stale[slot]
                     break
                 lows[slot] = found
-            value = signal.values[found]
-            if value is None or not math.isfinite(value):
+            value = _sample_value(signal.values[found])
+            if value is None:
                 problem = absent_value[slot]
                 break
-            row[signal_id] = float(value)
+            row[signal_id] = value
         result: float | None = None
         if problem is None:
             try:
