@@ -85,6 +85,9 @@ application and `python -m pip install -e ".[dev]"` adds development tools.
 The older `src/main.py`, `src/app.py`, `src/ui` and `src/models` paths are import
 wrappers for compatibility. New implementation belongs in `src/lbr_dashboard`.
 
+See [Adding a telemetry source adapter](docs/adding-a-source-adapter.md) for a
+small runnable example and the shared conformance tests.
+
 ## Quality checks
 
 Run the same checks locally as CI:
