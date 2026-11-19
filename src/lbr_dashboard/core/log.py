@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -96,7 +96,13 @@ class LogSession:
 class LogImporter(Protocol):
     """Decode a legacy file into the presentation-independent tabular model."""
 
-    def import_session(self, path: Path) -> LogSession: ...
+    def import_session(
+        self,
+        path: Path,
+        *,
+        cancelled: Callable[[], bool] = lambda: False,
+        progress: Callable[[int], None] = lambda count: None,
+    ) -> LogSession: ...
 
 
 class LogSessionStore:
@@ -112,6 +118,10 @@ class LogSessionStore:
         session = self._importer.import_session(path)
         self._session = session
         return bool(session.headers)
+
+    def replace(self, session: LogSession) -> None:
+        """Commit an already decoded session on the owning application thread."""
+        self._session = session
 
     def edit_cell(self, row: int, column: int, text: str) -> None:
         if self._session is None:
@@ -131,4 +141,8 @@ class LogSessionStore:
 
         if self._session is None:
             return None
+        if name == "timestamp_ms":
+            name = next(
+                (header for header in self.headers if header.casefold() == "timestamp_ms"), name
+            )
         return self._session.numeric_column(name)

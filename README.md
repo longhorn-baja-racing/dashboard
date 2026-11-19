@@ -15,7 +15,10 @@ What works on `main` today:
 
 - A desktop shell that opens CSV files through **File > Open**, lists their
   columns, plots a selected column against `timestamp_ms` (or sample index),
-  and shows the raw rows in a table.
+  and shows the raw rows in a table. The start screen also offers Open CSV and a
+  static fictional demo; imports show loading and cancellation, and failures
+  show nonmodal error details while the previous data stays loaded (see
+  [import behavior and validation](docs/import-states.md)).
 - CSV decoding lives outside the Qt widgets. The tabular `LogSession` is a
   compatibility model, not the planned mixed-rate session model.
 - A **Telemetry source** panel that selects a `timestamp_ms` CSV preset or a

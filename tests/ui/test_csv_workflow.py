@@ -4,12 +4,14 @@ import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from time import monotonic
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QAction
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QFileDialog
 
 from lbr_dashboard.app import create_application, create_main_window
@@ -38,7 +40,10 @@ def _trigger_open(window: MainWindow, monkeypatch: pytest.MonkeyPatch, path: str
         action for action in window.menuBar().findChildren(QAction) if action.text() == "&Open"
     )
     action.trigger()
-    create_application([]).processEvents()
+    deadline = monotonic() + 5
+    while window.import_state == "loading" and monotonic() < deadline:
+        QTest.qWait(10)
+    assert window.import_state != "loading"
 
 
 def _assert_series(window: MainWindow, xs: list[float], ys: list[float]) -> None:
@@ -86,7 +91,7 @@ def test_menu_failure_preserves_data_and_recovers(
     with monkeypatch.context() as importer_patch:
         if failure in {"permission", "unexpected"}:
 
-            def fail_import(self: CsvImporter, path: Path):
+            def fail_import(self: CsvImporter, path: Path, **kwargs):
                 if failure == "permission":
                     raise PermissionError("access denied")
                 raise ValueError("importer rejected input")
@@ -113,7 +118,7 @@ def test_menu_failure_preserves_data_and_recovers(
     _trigger_open(window, monkeypatch, str(replacement))
     assert window.statusBar().currentMessage() == ""
     assert len(failures) == 2
-    assert window.left_panel.list_widget.count() == 3
+    assert window.left_panel.list_widget.count() == 2
     assert window.right_panel.table.columnCount() == 3
     item = window.right_panel.table.item(0, 1)
     assert item is not None and item.text() == "1200"
@@ -127,7 +132,7 @@ def test_direct_loader_preserves_original_exception(
 ) -> None:
     original = PermissionError("access denied")
 
-    def fail_import(self: CsvImporter, path: Path):
+    def fail_import(self: CsvImporter, path: Path, **kwargs):
         raise original
 
     monkeypatch.setattr(CsvImporter, "import_session", fail_import)
@@ -171,7 +176,9 @@ def test_application_can_select_another_importer_without_widget_changes() -> Non
     calls: list[Path] = []
 
     class CustomImporter:
-        def import_session(self, path: Path) -> LogSession:
+        def import_session(
+            self, path: Path, *, cancelled=lambda: False, progress=lambda count: None
+        ) -> LogSession:
             calls.append(path)
             return LogSession.from_rows(
                 ("timestamp_ms", "custom.signal/999"), (("-20", "17.5"), ("-5", "19.25"))

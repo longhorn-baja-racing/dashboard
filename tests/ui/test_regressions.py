@@ -83,7 +83,7 @@ def test_empty_import_clears_display_and_allows_another_load(
 
 
 def test_file_menu_opens_csv_and_cancel_preserves_session(
-    window: MainWindow, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    window: MainWindow, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qtbot: QtBot
 ) -> None:
     path = tmp_path / "selected.csv"
     path.write_text("speed\n23\n")
@@ -91,6 +91,7 @@ def test_file_menu_opens_csv_and_cancel_preserves_session(
     menu = window.menuBar().actions()[0].menu()
     assert isinstance(menu, QMenu)
     menu.actions()[0].trigger()
+    qtbot.waitUntil(lambda: window.import_state == "ready")
     assert window.right_panel.table.rowCount() == 1
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
     menu.actions()[0].trigger()

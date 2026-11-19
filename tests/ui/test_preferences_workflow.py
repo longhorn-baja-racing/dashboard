@@ -73,7 +73,7 @@ def test_theme_and_recent_paths_survive_window_restart_and_menu_reopens_file(
     assert menu(restarted).theme_actions["light"].isChecked()
     assert restarted.right_panel.table.rowCount() == 0  # no automatic source opening
     menu(restarted).recent_menu.actions()[0].trigger()
-    assert restarted.right_panel.table.rowCount() == 2
+    qtbot.waitUntil(lambda: restarted.right_panel.table.rowCount() == 2)
     menu(restarted).recent_menu.actions()[-1].trigger()
     assert new_controller.current.recent_sources == ()
     assert PreferencesStore(prefs).reload().preferences.recent_sources == ()
@@ -122,9 +122,11 @@ def test_failed_source_load_does_not_change_recent_preferences(qtbot, tmp_path) 
             path.write_bytes(b"header\n\xff")
         with pytest.raises((FileNotFoundError, UnicodeDecodeError)):
             view.load_csv(path)
+        view.statusBar().clearMessage()
         view.csv_requested.emit(str(path))
+        # CSV imports run on a worker; wait for the failure to be reported.
+        qtbot.waitUntil(lambda: "Could not load" in view.statusBar().currentMessage())
         assert controller.current is before and store.path.read_bytes() == data
-        assert "Could not load" in view.statusBar().currentMessage()
 
 
 def test_corrupt_preferences_recover_visibly_and_invalid_input_never_opens_sources(
@@ -152,7 +154,7 @@ def test_missing_recent_file_is_reported_without_removing_its_entry(qtbot, tmp_p
     store.save(Preferences(recent_sources=(entry,)))
     view, _, controller = window(qtbot, path)
     menu(view).recent_menu.actions()[0].trigger()
-    assert "Could not load" in view.statusBar().currentMessage()
+    qtbot.waitUntil(lambda: "Could not load" in view.statusBar().currentMessage())
     assert controller.current.recent_sources == (entry,)
 
 
