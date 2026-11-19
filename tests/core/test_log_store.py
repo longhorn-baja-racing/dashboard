@@ -30,7 +30,7 @@ def test_load_and_missing_file_preserve_current_session(tmp_path: Path) -> None:
     assert store.numeric_column("value") == (12.0,)
 
 
-def test_empty_import_preserves_existing_session(tmp_path: Path) -> None:
+def test_empty_import_clears_existing_session(tmp_path: Path) -> None:
     path = tmp_path / "valid.csv"
     empty = tmp_path / "empty.csv"
     path.write_text("rpm\n900\n")
@@ -39,8 +39,9 @@ def test_empty_import_preserves_existing_session(tmp_path: Path) -> None:
     assert not store.load(empty)
     assert store.load(path)
     assert not store.load(empty)
-    assert store.headers == ("rpm",)
-    assert store.numeric_column("rpm") == (900.0,)
+    assert store.headers == ()
+    assert store.rows == ()
+    assert store.numeric_column("rpm") is None
 
 
 def test_short_rows_and_quoted_csv(tmp_path: Path) -> None:
