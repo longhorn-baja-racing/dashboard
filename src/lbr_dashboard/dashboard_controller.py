@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .core.log import LogImporter, LogSessionStore
 from .importers.lbr_csv import LbrCsvCancelled, LbrCsvError, LbrCsvImporter, is_lbr_csv
 from .ui.main_window import MainWindow
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardController:
@@ -38,6 +41,7 @@ class DashboardController:
         try:
             self.load_csv(file_path)
         except Exception as error:
+            logger.warning("Could not load %s", file_path, exc_info=True)
             self._window.show_load_error(file_path, str(error))
 
     def load_csv(self, file_path: str) -> None:
