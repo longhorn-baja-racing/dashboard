@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.14"
 authors = [{ name = "Longhorn Baja Racing" }]
 dependencies = [
+    "numpy>=1.25",
     "PySide6>=6.7,<7",
     "pyqtgraph>=0.13,<1",
 ]
