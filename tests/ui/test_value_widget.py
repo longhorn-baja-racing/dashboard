@@ -4,7 +4,7 @@ import gc
 import weakref
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QWidget
 
 from lbr_dashboard.core.value_display import (
@@ -77,6 +77,41 @@ def test_false_and_missing_unit_are_explicit(qtbot) -> None:
     assert widget.value_label.text() == "false"
     assert widget.unit_label.text() == NO_UNIT_TEXT
     assert widget.state_label.text() == "[OK]"
+
+
+def test_markup_looking_text_is_shown_literally(qtbot) -> None:
+    markup = StaticDescriptor(
+        "<i>car</i>.status",
+        "<b>Mode</b> &amp; <font color=red>state</font>",
+        "<u>adapter</u>",
+        "text",
+        "<sup>2</sup>",
+    )
+    widget = make_widget(qtbot, markup.identifier)
+    widget.show()
+    qtbot.waitExposed(widget)
+    widget.show_display(
+        describe_value(markup, StaticSample(S, "<b>READY</b>", quality="<i>check</i>"))
+    )
+    for label in (
+        widget.name_label,
+        widget.state_label,
+        widget.value_label,
+        widget.identity_label,
+        widget.type_label,
+        widget.unit_label,
+        widget.time_label,
+        widget.quality_label,
+    ):
+        assert label.textFormat() == Qt.TextFormat.PlainText
+    assert widget.value_label.text() == '"<b>READY</b>"'
+    assert widget.name_label.text() == "<b>Mode</b> &amp; <font color=red>state</font>"
+    assert widget.identity_label.text() == "<i>car</i>.status from <u>adapter</u>"
+    assert "<i>check</i>" in widget.quality_label.text()
+    # Rendered as rich text, the tags would vanish and the label would be narrower
+    # than the literal string; plain text keeps every character visible.
+    metrics = widget.value_label.fontMetrics()
+    assert widget.value_label.sizeHint().width() >= metrics.horizontalAdvance('"<b>READY</b>"')
 
 
 def test_records_for_other_signals_are_ignored(qtbot) -> None:

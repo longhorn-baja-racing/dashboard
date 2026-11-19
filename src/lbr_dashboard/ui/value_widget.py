@@ -41,6 +41,10 @@ class SignalValueWidget(QWidget):
         self._value_font = QFont(self.value_label.font())
         self._value_font.setPointSizeF(max(self._value_font.pointSizeF(), 1.0) * 1.5)
         self._value_font.setBold(True)
+        # Names, units and values come from sources and recordings, so a reading
+        # such as "<b>READY</b>" must be shown literally, never as rich text.
+        for label in self._labels():
+            label.setTextFormat(Qt.TextFormat.PlainText)
         self.quality_label.setWordWrap(True)
         self.value_label.setWordWrap(True)
         for label in (self.value_label, self.identity_label, self.time_label):
@@ -59,6 +63,20 @@ class SignalValueWidget(QWidget):
         layout.addWidget(self.value_label)
         layout.addLayout(details)
         self.clear()
+
+    def _labels(self) -> tuple[QLabel, ...]:
+        """Every label that shows descriptor or sample content."""
+
+        return (
+            self.name_label,
+            self.state_label,
+            self.value_label,
+            self.identity_label,
+            self.type_label,
+            self.unit_label,
+            self.time_label,
+            self.quality_label,
+        )
 
     @property
     def signal_id(self) -> str:

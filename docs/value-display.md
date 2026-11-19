@@ -91,7 +91,9 @@ type, unit (`(none)` when absent), time, and quality. `show_display(record)`
 ignores records for other signal IDs and returns False, so one update can be
 offered to every widget. `set_signal_id` reassigns the widget and clears it.
 The current state is also available as the `valueState` Qt property for
-optional styling.
+optional styling. Every label that shows descriptor or sample content uses
+`Qt.TextFormat.PlainText`, so markup-looking text such as `<b>READY</b>` is
+shown literally and never interpreted as rich text.
 
 ## Not in this slice
 
