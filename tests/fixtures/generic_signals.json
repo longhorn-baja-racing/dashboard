@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "metadata": {"description": "Independent example adapters; no selected hardware"},
+  "future_schema_option": {"preserve": true},
+  "signals": [
+    {"id": "replay.pressure", "display_name": "Pressure", "path": ["lab", "pressure"], "type": "numeric", "source_id": "csv-replay", "canonical_unit": "Pa", "nominal_rate_hz": 100, "timestamp_domain": "relative", "calibration": {"k": 1, " k": 2}},
+    {"id": "live.pressure", "display_name": "Pressure", "path": ["lab", "pressure"], "type": "numeric", "source_id": "live-adapter", "device_id": "device-a", "canonical_unit": "psi", "timestamp_domain": "device_monotonic"},
+    {"id": "sim.temperature", "display_name": "Temperature", "path": ["lab", "climate"], "type": "numeric", "source_id": "simulator", "canonical_unit": "°C", "nominal_rate_hz": 1, "timestamp_domain": "relative"},
+    {"id": "live.motion", "display_name": "Motion", "path": ["lab", "motion"], "type": "vector", "shape": [3], "source_id": "live-adapter", "canonical_unit": "m/s²", "timestamp_domain": "device_monotonic"},
+    {"id": "sim.enabled", "display_name": "Enabled", "path": ["lab", "control"], "type": "boolean", "source_id": "simulator"},
+    {"id": "replay.status", "display_name": "Status", "path": ["lab", "control"], "type": "status", "source_id": "csv-replay", "availability": {"available": false, "reason": "not-recorded", "future_reason_code": 17}},
+    {"id": "sim.event", "display_name": "Event", "path": ["lab", "events"], "type": "event", "source_id": "simulator"},
+    {"id": "future.spectrum", "display_name": "Spectrum", "path": ["lab", "future"], "type": "spectral_map", "shape": [2, 2], "source_id": "future-adapter", "future_metadata": {" k ": [1, 2]}}
+  ]
+}
