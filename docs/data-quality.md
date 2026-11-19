@@ -21,7 +21,10 @@ data shows and who established each finding.
 - `start_ns` / `end_ns` (optional): the interval. Intervals are **closed**: a
   sample at exactly `start_ns` or `end_ns` is inside. `None` leaves that side
   open. Samples are selected by their own timestamp and keep their recorded
-  order.
+  order. Steps between samples (timestamp regressions and counter steps) are
+  taken in recorded order over the whole input first and only then attributed
+  to the interval, so a sample outside the interval never makes two samples
+  inside it look adjacent.
 
 ```python
 from lbr_dashboard.core.data_quality import format_quality, summarize_signal
@@ -77,8 +80,9 @@ its moment: a regression is not also reported as a gap.
 - `duplicate_timestamps`: samples whose timestamp equals that of another
   sample in the interval (sample count minus distinct timestamps).
 - `regressions`: samples whose timestamp is earlier than the sample recorded
-  immediately before it. The count is exact; `regression_examples` keeps the
-  first 10 with their input positions.
+  immediately before it, even when that earlier-recorded sample is outside the
+  interval. The count is exact; `regression_examples` keeps the first 10 with
+  their input positions.
 - `min_delta_ns`, `median_delta_ns`, `max_delta_ns`: over the positive deltas
   between consecutive sorted timestamps. Zero deltas (duplicates) are
   excluded. The median is the lower median, so it is always an observed delta.
@@ -122,6 +126,19 @@ order is classified:
 
 Counts are exact; `events` keeps the first 10 non-normal steps.
 
+Steps are classified over the whole input in recorded order and then
+attributed to the interval:
+
+- A step whose two samples are both inside the interval is counted as above.
+- A step with one sample outside the interval, between the first and last
+  inside samples in recorded order, cannot place any records it lost inside or
+  outside the interval. If it skips values or resets it is counted in
+  `unattributed_steps` instead; a `+1` step or repeat there is ignored. For
+  example, times `[0, 100, 10]` with counters `[0, 1, 2]` over `[0, 10]` loses
+  nothing, because counter 1 is in the recording at 100 ns.
+- Steps before the first or after the last inside sample are outside the
+  interval and ignored.
+
 Missing counter values become **confirmed dropped records** only when the
 caller states the counter is contiguous (`sequence_contiguous=True`: it
 increases by exactly one per record). Otherwise `dropped_records` is `None`,
@@ -136,6 +153,7 @@ because a counter may legitimately skip values.
 | Contiguous counter, no samples in the interval | `unknown` |
 | Contiguous counter, any missing values | `incomplete` |
 | Contiguous counter, no missing values but a reset | `unknown` |
+| Contiguous counter, no missing values but an unattributed step | `unknown` |
 | Contiguous counter, no missing values, no resets | `complete` |
 
 Timestamps alone never make a signal complete or incomplete: without a

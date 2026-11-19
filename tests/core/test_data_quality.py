@@ -209,6 +209,7 @@ def test_contiguous_counter_without_skips_is_complete() -> None:
         rollovers=0,
         resets=0,
         events=(),
+        unattributed_steps=0,
     )
     assert quality.completeness is Completeness.COMPLETE
 
@@ -305,6 +306,67 @@ def test_interval_selection_keeps_recorded_order() -> None:
     timing = summarize_signal(times, [1.0] * 5, start_ns=0, end_ns=30).timing
     assert timing.regressions == 2
     assert timing.regression_examples == (Regression(1, 30, 0), Regression(3, 20, 10))
+
+
+def test_closed_interval_does_not_invent_loss_across_an_outside_sample() -> None:
+    times, counter = [0, 100, 10], [0, 1, 2]
+    quality = summarize_signal(
+        times, [1.0] * 3, start_ns=0, end_ns=10, sequence=counter, sequence_contiguous=True
+    )
+    assert quality.values.samples == 2
+    assert quality.sequence is not None
+    assert quality.sequence.missing_values == 0
+    assert quality.sequence.dropped_records == 0
+    assert quality.sequence.events == ()
+    assert quality.sequence.unattributed_steps == 0
+    assert quality.completeness is Completeness.COMPLETE
+    table = dict(format_quality(quality))
+    assert table["Confirmed dropped records [recorded]"] == "0"
+    assert table["Completeness [recorded]"] == "complete"
+    # The regression from 100 to 10 belongs to sample 2, which is inside.
+    assert quality.timing.regression_examples == (Regression(2, 100, 10),)
+
+
+def test_loss_next_to_an_outside_sample_is_unknown_not_complete() -> None:
+    # Records 1 to 4 were lost next to the sample at 100 ns, so they cannot
+    # be placed inside or outside [0, 10].
+    for counter in ([0, 5, 6], [0, 1, 6], [3, 0, 1]):
+        quality = summarize_signal(
+            [0, 100, 10],
+            [1.0] * 3,
+            start_ns=0,
+            end_ns=10,
+            sequence=counter,
+            sequence_contiguous=True,
+        )
+        assert quality.sequence is not None
+        assert quality.sequence.missing_values == 0
+        assert quality.sequence.unattributed_steps == 1
+        assert quality.completeness is Completeness.UNKNOWN
+        table = dict(format_quality(quality))
+        assert table["Counter steps across interval edge [recorded]"] == "1"
+
+
+def test_steps_with_both_samples_inside_are_still_attributed() -> None:
+    times, counter = [0, 100, 10, 20], [0, 1, 2, 5]
+    quality = summarize_signal(
+        times, [1.0] * 4, start_ns=0, end_ns=20, sequence=counter, sequence_contiguous=True
+    )
+    assert quality.sequence is not None
+    assert quality.sequence.events == (SequenceEvent(SequenceEventKind.MISSING, 3, 2, 5, 2),)
+    assert quality.sequence.dropped_records == 2
+    assert quality.sequence.unattributed_steps == 0
+    assert quality.completeness is Completeness.INCOMPLETE
+
+
+def test_loss_outside_the_inside_span_is_not_attributed() -> None:
+    times, counter = [0, 10, 20, 30, 40], [0, 5, 6, 7, 20]
+    quality = summarize_signal(
+        times, [1.0] * 5, start_ns=10, end_ns=30, sequence=counter, sequence_contiguous=True
+    )
+    assert quality.sequence is not None
+    assert (quality.sequence.missing_values, quality.sequence.unattributed_steps) == (0, 0)
+    assert quality.completeness is Completeness.COMPLETE
 
 
 def test_empty_input() -> None:

@@ -6,6 +6,9 @@ summaries do not assume sorted timestamps: samples are walked in recorded order
 so that timestamp regressions can be reported.
 
 Intervals are closed: a sample at exactly ``start_ns`` or ``end_ns`` is inside.
+Steps between samples (timestamp regressions, sequence counter steps) are taken
+in recorded order over the whole input first and only then attributed to the
+interval, so a sample outside it never makes two inside samples look adjacent.
 
 Every finding is labelled with the evidence that established it (see
 ``Evidence``). Nothing here claims a root cause, and completeness is only ever
@@ -167,6 +170,10 @@ class SequenceSummary:
     rollovers: int
     resets: int
     events: tuple[SequenceEvent, ...]
+    unattributed_steps: int
+    """Skips or resets between a sample inside the interval and one outside it,
+    between the first and last inside samples in recorded order. The records
+    they may have lost cannot be placed inside or outside the interval."""
 
     @property
     def dropped_records(self) -> int | None:
@@ -180,8 +187,10 @@ class SequenceSummary:
             return Completeness.UNKNOWN
         if self.missing_values:
             return Completeness.INCOMPLETE
-        if self.resets:
-            return Completeness.UNKNOWN  # Records lost across a reset cannot be counted.
+        if self.resets or self.unattributed_steps:
+            # Records lost across a reset, or next to a sample outside the
+            # interval, cannot be counted against this interval.
+            return Completeness.UNKNOWN
         return Completeness.COMPLETE
 
 
@@ -244,26 +253,22 @@ def summarize_signal(
         if sequence is not None and any(not 0 <= item < sequence_modulus for item in sequence):
             raise ValueError("Sequence values must be in [0, modulus)")
 
-    selected = [
-        index
-        for index, time in enumerate(times_ns)
-        if (start_ns is None or time >= start_ns) and (end_ns is None or time <= end_ns)
+    in_interval = [
+        (start_ns is None or time >= start_ns) and (end_ns is None or time <= end_ns)
+        for time in times_ns
     ]
+    selected = [index for index, inside in enumerate(in_interval) if inside]
     sequence_summary = None
     if sequence is not None:
         sequence_summary = _summarize_sequence(
-            [(index, sequence[index]) for index in selected],
-            sequence_modulus,
-            sequence_contiguous,
+            sequence, in_interval, selected, sequence_modulus, sequence_contiguous
         )
     return SignalQuality(
         name=name,
         start_ns=start_ns,
         end_ns=end_ns,
         values=_count_values([values[index] for index in selected]),
-        timing=_summarize_timing(
-            [(index, times_ns[index]) for index in selected], expected_period_ns, gap_factor
-        ),
+        timing=_summarize_timing(times_ns, selected, expected_period_ns, gap_factor),
         sequence=sequence_summary,
     )
 
@@ -315,19 +320,24 @@ def _count_values(values: Sequence[float | None]) -> ValueCounts:
 
 
 def _summarize_timing(
-    samples: Sequence[tuple[int, int]], expected_period_ns: int | None, gap_factor: float
+    times_ns: Sequence[int],
+    selected: Sequence[int],
+    expected_period_ns: int | None,
+    gap_factor: float,
 ) -> Timing:
+    # A regression belongs to the later sample and compares it with the sample
+    # recorded immediately before it, even when that one is outside the interval.
     regressions = 0
     examples: list[Regression] = []
-    for (_, previous), (index, time) in pairwise(samples):
-        if time < previous:
+    for index in selected:
+        if index and times_ns[index] < times_ns[index - 1]:
             regressions += 1
             if len(examples) < MAX_EXAMPLES:
-                examples.append(Regression(index, previous, time))
+                examples.append(Regression(index, times_ns[index - 1], times_ns[index]))
 
     # Coverage in time is judged on sorted timestamps: a sample recorded out of
     # order still covers its moment, so a regression is not also a gap.
-    ordered = sorted(time for _, time in samples)
+    ordered = sorted(times_ns[index] for index in selected)
     deltas = [later - earlier for earlier, later in pairwise(ordered)]
     positive = [delta for delta in deltas if delta > 0]
     median = median_low(positive) if positive else None
@@ -370,41 +380,73 @@ def _missing_periods(duration_ns: int, period_ns: int) -> int:
 
 
 def _summarize_sequence(
-    counters: Sequence[tuple[int, int]], modulus: int | None, contiguous: bool
+    sequence: Sequence[int],
+    in_interval: Sequence[bool],
+    selected: Sequence[int],
+    modulus: int | None,
+    contiguous: bool,
 ) -> SequenceSummary:
-    missing = repeats = rollovers = resets = 0
+    """Classify counter steps in recorded order, then attribute them to the interval.
+
+    A step counts when both of its samples are inside the interval. A step
+    with one sample outside, between the first and last inside samples, is
+    only reported as unattributed when it could hide lost records. Steps
+    before the first or after the last inside sample are outside the interval.
+    """
+
+    missing = repeats = rollovers = resets = unattributed = 0
     events: list[SequenceEvent] = []
-    for (_, previous), (index, value) in pairwise(counters):
-        if value == previous + 1:
+    first, last = (selected[0], selected[-1]) if selected else (0, 0)
+    for index in range(first + 1, last + 1):
+        before, after = in_interval[index - 1], in_interval[index]
+        if not (before or after):
             continue
-        if value == previous:
+        event = _classify_step(index, sequence[index - 1], sequence[index], modulus)
+        if event is None:
+            continue
+        if not (before and after):
+            if event.skipped or event.kind is SequenceEventKind.RESET:
+                unattributed += 1
+            continue
+        if event.kind is SequenceEventKind.REPEAT:
             repeats += 1
-            event = SequenceEvent(SequenceEventKind.REPEAT, index, previous, value, 0)
-        elif value > previous:
-            missing += value - previous - 1
-            event = SequenceEvent(
-                SequenceEventKind.MISSING, index, previous, value, value - previous - 1
-            )
-        elif modulus is not None and value + modulus - previous <= modulus // 2:
-            skipped = value + modulus - previous - 1
-            rollovers += 1
-            missing += skipped
-            event = SequenceEvent(SequenceEventKind.ROLLOVER, index, previous, value, skipped)
-        else:
+        elif event.kind is SequenceEventKind.RESET:
             resets += 1
-            event = SequenceEvent(SequenceEventKind.RESET, index, previous, value, 0)
+        elif event.kind is SequenceEventKind.ROLLOVER:
+            rollovers += 1
+        missing += event.skipped
         if len(events) < MAX_EXAMPLES:
             events.append(event)
     return SequenceSummary(
         contiguous=contiguous,
         modulus=modulus,
-        runs=resets + 1 if counters else 0,
+        runs=resets + 1 if selected else 0,
         missing_values=missing,
         repeats=repeats,
         rollovers=rollovers,
         resets=resets,
         events=tuple(events),
+        unattributed_steps=unattributed,
     )
+
+
+def _classify_step(
+    index: int, previous: int, value: int, modulus: int | None
+) -> SequenceEvent | None:
+    """The event for one counter step, or ``None`` for a normal ``previous + 1``."""
+
+    if value == previous + 1:
+        return None
+    if value == previous:
+        return SequenceEvent(SequenceEventKind.REPEAT, index, previous, value, 0)
+    if value > previous:
+        return SequenceEvent(
+            SequenceEventKind.MISSING, index, previous, value, value - previous - 1
+        )
+    if modulus is not None and value + modulus - previous <= modulus // 2:
+        skipped = value + modulus - previous - 1
+        return SequenceEvent(SequenceEventKind.ROLLOVER, index, previous, value, skipped)
+    return SequenceEvent(SequenceEventKind.RESET, index, previous, value, 0)
 
 
 def format_quality(quality: SignalQuality) -> list[tuple[str, str]]:
@@ -471,6 +513,7 @@ def format_quality(quality: SignalQuality) -> list[tuple[str, str]]:
         (f"Counter repeats {rec}", str(sequence.repeats)),
         (f"Counter rollovers {rec}", str(sequence.rollovers)),
         (f"Counter resets {rec}", str(sequence.resets)),
+        (f"Counter steps across interval edge {rec}", str(sequence.unattributed_steps)),
     ]
     rows += [
         (f"  {event.kind.value} at sample {event.index}", f"{event.previous} -> {event.value}")
