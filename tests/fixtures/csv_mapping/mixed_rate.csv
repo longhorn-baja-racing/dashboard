@@ -1,0 +1,12 @@
+time (s),signal_a [V],signal_b,slow_signal (degC),flag,note
+0.000,1.5,10,20.0,false,start
+0.010,1.6,11,,false,
+0.020,1.7,NaN,,true,"comma, inside"
+0.030,oops,13,,true,"line
+break"
+,1.9,14,,false,no time
+0.025,1.8,15,21.0,true,late row
+0.040,2.0,16,,false,
+0.040,2.1,17,,false,repeat time
+0.050,2.2,18,22.0
+0.060,2.3,19,,true,extra,cells

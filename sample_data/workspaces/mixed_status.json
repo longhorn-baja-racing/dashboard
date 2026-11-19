@@ -1,0 +1,126 @@
+{
+  "format": "lbr-dashboard-workspace",
+  "version": 1,
+  "name": "Mixed numeric and status example",
+  "description": "Numeric traces with discrete status signals on a shared timeline. Signal IDs match column names in sample_data/sample_baja_log.csv.",
+  "widgets": [
+    {
+      "id": "drive-plot",
+      "type": "time_plot",
+      "title": "Driver inputs",
+      "axes": [
+        {
+          "id": "percent",
+          "side": "left",
+          "label": "Pedal",
+          "unit": "%",
+          "range": [
+            0.0,
+            100.0
+          ]
+        },
+        {
+          "id": "speed",
+          "side": "right",
+          "label": "Engine",
+          "unit": "rpm"
+        }
+      ],
+      "bindings": [
+        {
+          "signal": "throttle_pct",
+          "axis": "percent"
+        },
+        {
+          "signal": "brake_pct",
+          "axis": "percent"
+        },
+        {
+          "signal": "engine_rpm",
+          "axis": "speed"
+        }
+      ]
+    },
+    {
+      "id": "status-timeline",
+      "type": "event_timeline",
+      "title": "Buttons",
+      "bindings": [
+        {
+          "signal": "button_start",
+          "label": "Start"
+        },
+        {
+          "signal": "button_mode",
+          "label": "Mode"
+        }
+      ]
+    },
+    {
+      "id": "status-values",
+      "type": "value_cards",
+      "title": "Current values",
+      "bindings": [
+        {
+          "signal": "engine_rpm"
+        },
+        {
+          "signal": "button_mode"
+        }
+      ]
+    },
+    {
+      "id": "raw",
+      "type": "raw_table",
+      "title": "Raw rows",
+      "bindings": []
+    }
+  ],
+  "layout": {
+    "kind": "split",
+    "orientation": "horizontal",
+    "children": [
+      {
+        "kind": "split",
+        "orientation": "vertical",
+        "children": [
+          {
+            "kind": "widget",
+            "widget": "drive-plot"
+          },
+          {
+            "kind": "widget",
+            "widget": "status-timeline"
+          }
+        ],
+        "weights": [
+          2.0,
+          1.0
+        ]
+      },
+      {
+        "kind": "tabs",
+        "children": [
+          {
+            "kind": "widget",
+            "widget": "status-values"
+          },
+          {
+            "kind": "widget",
+            "widget": "raw"
+          }
+        ],
+        "current": 0
+      }
+    ],
+    "weights": [
+      3.0,
+      1.0
+    ]
+  },
+  "extensions": {
+    "team.notes": {
+      "purpose": "Onboarding example for mixed signal types"
+    }
+  }
+}
