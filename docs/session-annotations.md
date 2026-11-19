@@ -103,9 +103,11 @@ other than "not found" while reading the log propagate as `OSError`.
 ## Errors
 
 `AnnotationFileError` carries `path` and `reason`. It is raised for unreadable
-files, invalid UTF-8 or JSON, duplicate JSON keys, `NaN`/`Infinity`, a wrong
-`format` or `version`, missing or unknown keys, wrong types, values out of
-range, duplicate IDs, and oversized files. Problems inside one annotation name
+files, invalid UTF-8 or JSON, strings that cannot be written as UTF-8 (such
+as an escaped lone surrogate like `\udcff` in any text field or the log name),
+duplicate JSON keys, `NaN`/`Infinity`, a wrong `format` or `version`, missing
+or unknown keys, wrong types, values out of range, duplicate IDs, and
+oversized files. Problems inside one annotation name
 its index, for example `annotation 2: duplicate id 'dup'`.
 
 ## Atomic saves

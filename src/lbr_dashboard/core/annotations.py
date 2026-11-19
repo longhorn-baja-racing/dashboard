@@ -56,9 +56,26 @@ def _check_int64(name: str, value: object) -> int:
     return value
 
 
+def _check_utf8(name: str, value: str) -> None:
+    """Reject strings that cannot be written as UTF-8.
+
+    JSON escapes such as ``\\udcff`` decode to lone surrogates, which Python
+    accepts in a ``str`` but cannot encode. Refusing them here keeps every
+    accepted value saveable.
+    """
+
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            f"{name} must be valid UTF-8 text (unpaired surrogate at index {exc.start})"
+        ) from None
+
+
 def _check_str(name: str, value: object, max_length: int, *, required: bool = False) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{name} must be a string")
+    _check_utf8(name, value)
     if required and not value.strip():
         raise ValueError(f"{name} must not be empty")
     if len(value) > max_length:
@@ -115,6 +132,7 @@ class LogFingerprint:
     def __post_init__(self) -> None:
         if not isinstance(self.name, str):
             raise TypeError("log name must be a string")
+        _check_utf8("log name", self.name)
         if isinstance(self.size, bool) or not isinstance(self.size, int):
             raise TypeError("log size must be an integer")
         if self.size < 0:
@@ -129,7 +147,12 @@ class LogFingerprint:
 
 
 def fingerprint(log_path: Path) -> LogFingerprint:
-    """Fingerprint a log by reading it in chunks; the file is opened read-only."""
+    """Fingerprint a log by reading it in chunks; the file is opened read-only.
+
+    A file name that is not valid Unicode (undecodable bytes on POSIX, lone
+    surrogates on Windows) is kept with replacement characters, since the
+    name is informational only.
+    """
 
     digest = hashlib.sha256()
     size = 0
@@ -137,7 +160,8 @@ def fingerprint(log_path: Path) -> LogFingerprint:
         while chunk := stream.read(_HASH_CHUNK_BYTES):
             digest.update(chunk)
             size += len(chunk)
-    return LogFingerprint(log_path.name, size, digest.hexdigest())
+    name = os.fsencode(log_path.name).decode("utf-8", "replace")
+    return LogFingerprint(name, size, digest.hexdigest())
 
 
 def sidecar_path(log_path: Path) -> Path:

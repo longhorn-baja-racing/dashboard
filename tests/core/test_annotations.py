@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import stat
+import sys
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,9 @@ LOG_BYTES = b"time_ns,front_left_rpm,gps_lat\r\n0,900,30.28\r\n1000000,950,30.29
 NON_ASCII_TEXT = (
     f"Caf{chr(0xE9)} stop: temp 85 {chr(0xB0)}C, {chr(0x6E29)}{chr(0x5EA6)} ok {chr(0x1F697)}"
 )
+# A lone surrogate: a valid JSON string escape that has no UTF-8 encoding.
+LONE_SURROGATE = chr(0xDCFF)
+ESCAPED_SURROGATE = "\\" + "udcff"
 
 
 def _write_log(directory: Path, name: str = "run 1.csv", data: bytes = LOG_BYTES) -> Path:
@@ -127,6 +131,10 @@ def test_annotation_is_immutable() -> None:
         ({"category": None}, TypeError, "category must be a string"),
         ({"source_id": "x" * 257}, ValueError, "at most 256"),
         ({"source_id": 3}, TypeError, "source_id must be a string"),
+        ({"annotation_id": f"id{LONE_SURROGATE}"}, ValueError, "annotation_id must be valid UTF-8"),
+        ({"text": f"note {LONE_SURROGATE}"}, ValueError, "text must be valid UTF-8"),
+        ({"category": LONE_SURROGATE}, ValueError, "category must be valid UTF-8"),
+        ({"source_id": f"rpm{LONE_SURROGATE}"}, ValueError, "source_id must be valid UTF-8"),
     ],
 )
 def test_annotation_validation(
@@ -159,6 +167,7 @@ def test_annotation_accepts_limits() -> None:
         ("log", 0, None, TypeError, "sha256 must be a string"),
         ("log", 0, "0" * 63, ValueError, "64 lowercase"),
         ("log", 0, "A" * 64, ValueError, "64 lowercase"),
+        (f"log{LONE_SURROGATE}", 0, "0" * 64, ValueError, "log name must be valid UTF-8"),
     ],
 )
 def test_fingerprint_validation(
@@ -632,6 +641,26 @@ def test_load_rejects_malformed_bytes(tmp_path: Path, data: bytes, message: str)
         (_annotation_document(id=""), "annotation 0: annotation_id must not be empty"),
         (_annotation_document(category=None), "annotation 0: category must be a string"),
         (_annotation_document(source_id=[]), "annotation 0: source_id must be a string"),
+        (
+            _annotation_document(text=f"note {LONE_SURROGATE}"),
+            "annotation 0: text must be valid UTF-8",
+        ),
+        (
+            _annotation_document(id=f"one{LONE_SURROGATE}"),
+            "annotation 0: annotation_id must be valid UTF-8",
+        ),
+        (
+            _annotation_document(category=LONE_SURROGATE),
+            "annotation 0: category must be valid UTF-8",
+        ),
+        (
+            _annotation_document(source_id=LONE_SURROGATE),
+            "annotation 0: source_id must be valid UTF-8",
+        ),
+        (
+            _document(log={"name": LONE_SURROGATE, "size": 3, "sha256": "0" * 64}),
+            "log name must be valid UTF-8",
+        ),
     ],
 )
 def test_load_rejects_invalid_documents(tmp_path: Path, document: object, message: str) -> None:
@@ -660,3 +689,57 @@ def test_load_reports_unreadable_annotation_file(tmp_path: Path) -> None:
         load_annotations(tmp_path)  # A directory, not a file.
     assert caught.value.path == tmp_path
     assert caught.value.reason.startswith("cannot read file")
+
+
+# Text that cannot be encoded as UTF-8 ------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["text", "id", "category", "source_id"])
+def test_escaped_surrogate_in_a_saved_file_is_rejected_on_load(tmp_path: Path, field: str) -> None:
+    log = _write_log(tmp_path)
+    target = sidecar_path(log)
+    save_annotations(target, _sample_set(log))
+    good = target.read_bytes()
+    document = json.loads(good)
+    document["annotations"][0][field] = f"bad {LONE_SURROGATE}"
+    data = json.dumps(document, indent=2).encode("ascii")
+    assert ESCAPED_SURROGATE.encode("ascii") in data
+    target.write_bytes(data)
+
+    with pytest.raises(AnnotationFileError, match="annotation 0: .* must be valid UTF-8"):
+        load_annotations(target, log_path=log)
+    assert target.read_bytes() == data
+
+
+def test_escaped_surrogate_note_never_reaches_a_save(tmp_path: Path) -> None:
+    log = _write_log(tmp_path)
+    target = sidecar_path(log)
+    raw = json.dumps(_document(log={"name": log.name, "size": 3, "sha256": "0" * 64}))
+    data = raw.replace('"note"', f'"note {ESCAPED_SURROGATE}"').encode("ascii")
+    target.write_bytes(data)
+    with pytest.raises(AnnotationFileError, match="text must be valid UTF-8"):
+        load_annotations(target)
+
+    # A set built in code cannot hold the text either, so a save never meets it.
+    annotations = AnnotationSet(fingerprint(log)).add(new_annotation(0, "ok"))
+    with pytest.raises(ValueError, match="valid UTF-8"):
+        annotations.update(annotations.annotations[0].annotation_id, text=LONE_SURROGATE)
+    save_annotations(target, annotations)
+    assert load_annotations(target, log_path=log).annotations == annotations
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs a file name that is not UTF-8")
+def test_log_with_undecodable_file_name_still_saves_and_loads(tmp_path: Path) -> None:
+    raw_name = os.fsencode(tmp_path) + b"/run-\xff.csv"
+    with open(raw_name, "wb") as stream:
+        stream.write(LOG_BYTES)
+    log = Path(os.fsdecode(raw_name))
+    log_fingerprint = fingerprint(log)
+    assert log_fingerprint.name == f"run-{chr(0xFFFD)}.csv"
+
+    target = tmp_path / "notes.json"
+    annotations = AnnotationSet(log_fingerprint).add(new_annotation(1, "note"))
+    save_annotations(target, annotations)
+    loaded = load_annotations(target, log_path=log)
+    assert loaded.status is LogStatus.OK
+    assert loaded.annotations == annotations
