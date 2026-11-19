@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from math import isfinite
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.log import NumericColumn
+
+SYMBOL_LIMIT = 5_000
 
 
 class RightPanel(QWidget):
@@ -80,7 +82,6 @@ class RightPanel(QWidget):
         self.table.clearSelection()
         self.table.selectColumn(column_index)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectColumns)
-        self._reset_plot()
 
     def _reset_plot(self) -> None:
         self.plot_widget.clear()
@@ -98,38 +99,31 @@ class RightPanel(QWidget):
         if values is None:
             return
 
+        ys = np.asarray(values, dtype=np.float64)
         if timestamp_values is not None and column_name.casefold() != "timestamp_ms":
-            timestamps = [
-                value for value in timestamp_values if value is not None and isfinite(value)
-            ]
-            start_time = min(timestamps) if timestamps else 0.0
-            x_values = [
-                value - start_time if value is not None else None for value in timestamp_values
-            ]
+            xs = np.asarray(timestamp_values, dtype=np.float64)
+            valid_times = np.isfinite(xs)
+            if valid_times.any():
+                with np.errstate(over="ignore", invalid="ignore"):
+                    xs -= np.min(xs, where=valid_times, initial=np.inf)
             x_label = "Time since start (ms)"
         else:
-            x_values = [float(index) for index in range(len(values))]
+            xs = np.arange(ys.size, dtype=np.float64)
             x_label = "Sample"
 
-        pairs = [
-            (x_value, y_value)
-            for x_value, y_value in zip(x_values, values)
-            if x_value is not None
-            and y_value is not None
-            and isfinite(x_value)
-            and isfinite(y_value)
-        ]
+        count = min(xs.size, ys.size)
+        xs, ys = xs[:count], ys[:count]
+        valid = np.isfinite(xs) & np.isfinite(ys)
         self._reset_plot()
-        if not pairs:
+        if not valid.any():
             self.plot_widget.setTitle(f"{column_name} (no numeric data)", color="#aaaaaa")
             return
 
-        xs, ys = zip(*pairs)
         self.plot_widget.plot(
-            list(xs),
-            list(ys),
+            xs[valid],
+            ys[valid],
             pen=pg.mkPen("#00aaff", width=2),
-            symbol="o",
+            symbol="o" if np.count_nonzero(valid) <= SYMBOL_LIMIT else None,
             symbolSize=6,
             symbolBrush="#00aaff",
         )

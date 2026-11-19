@@ -62,6 +62,10 @@ use the new validated asynchronous path; they do not raise hidden Qt-slot errors
 | UTF-8 BOM / quoted commas / empty numeric cells / zero | Supported; originals unchanged, empty remains missing and zero remains zero |
 | File extension | Accept UTF-8 comma-separated data in `.csv` or `.txt` files |
 
+The table preview is capped at 1,000 rows and 50,000 cells. A selected trace
+still uses the full numeric series. Above 5,000 plotted samples the dashboard
+draws the line without individual point markers to reduce rendering work.
+
 No importer export or file rewrite is performed. The app's current wide CSV model
 is retained. Timestamp/unit mapping belongs to #31; simulator/source selection
 and final demo integration belong to #23/#35/#102. This branch does not claim
