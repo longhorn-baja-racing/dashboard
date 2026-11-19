@@ -355,3 +355,64 @@ def test_provenance_reproduces_the_same_output() -> None:
     again = moving_average(times, values, **first.params.as_dict())
     assert again.params == first.params == MovingAverageParams(2, "trailing", 0.05, 400)
     np.testing.assert_array_equal(again.values, first.values)
+
+
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1
+
+
+@pytest.mark.parametrize(
+    ("times", "message"),
+    [
+        pytest.param([2**63, 2**63 + 1, 2**63 + 2], "sample 0 is 9223372036854775808", id="list"),
+        pytest.param(
+            np.array([2**63, 2**63 + 1, 2**63 + 2], dtype=np.uint64),
+            "sample 0 is 9223372036854775808",
+            id="uint64-array",
+        ),
+        pytest.param([0, 1, 2**63], "sample 2 is 9223372036854775808", id="crosses-int64-max"),
+        pytest.param([-1, 0, 2**63], "sample 2 is 9223372036854775808", id="mixed-sign"),
+        pytest.param([0, 1, 2**64], "sample 2 is 18446744073709551616", id="past-uint64"),
+        pytest.param([INT64_MIN - 1, 0, 1], "sample 0 is -9223372036854775809", id="below-int64"),
+    ],
+)
+def test_timestamps_outside_int64_are_rejected_not_wrapped(times: object, message: str) -> None:
+    with pytest.raises(ValueError, match=f"signed 64-bit.*{message}"):
+        moving_average(times, [1.0, 2.0, 3.0], window_samples=1)  # type: ignore[arg-type]
+
+
+def test_unsigned_timestamps_up_to_int64_max_keep_their_value() -> None:
+    times = np.array([INT64_MAX - 20, INT64_MAX - 10, INT64_MAX], dtype=np.uint64)
+    result = moving_average(times, [1.0, 2.0, 3.0], window_samples=3)  # type: ignore[arg-type]
+    assert result.times_ns.tolist() == [INT64_MAX - 20, INT64_MAX - 10, INT64_MAX]
+    assert result.values_or_none() == [None, 2.0, None]
+    assert result.nominal_period_ns == 10.0
+
+
+def test_spacing_wider_than_int64_is_not_reported_as_backwards() -> None:
+    result = moving_average([INT64_MIN, INT64_MAX], [1.0, 3.0], window_samples=1)
+    assert result.times_ns.tolist() == [INT64_MIN, INT64_MAX]
+    assert result.nominal_period_ns == float(2**64 - 1)
+    assert result.values_or_none() == [1.0, 3.0]
+
+
+def test_window_larger_than_every_segment_never_builds_a_kernel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    huge = 2**62 + 1  # np.ones(huge) would fail: the array cannot exist
+    result = moving_average(_times(5), [1.0, 2.0, None, 4.0, 5.0], window_samples=huge)
+    assert result.values_or_none() == [None] * 5
+    assert (result.segment_count, result.edge_count, result.output_count) == (2, 4, 0)
+
+    sizes: list[object] = []
+    real_ones = np.ones
+
+    def recording_ones(shape: object, *args: object, **kwargs: object) -> object:
+        sizes.append(shape)
+        return real_ones(shape, *args, **kwargs)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(np, "ones", recording_ones)
+    moving_average(_times(5), [1.0, 2.0, None, 4.0, 5.0], window_samples=3)
+    assert 3 not in sizes
+    moving_average(_times(5), [1.0, 2.0, 3.0, 4.0, 5.0], window_samples=3)
+    assert 3 in sizes

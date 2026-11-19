@@ -57,8 +57,9 @@ of it, or `IrregularSamplingError` (a `ValueError`) is raised naming the first
 bad spacing. Nothing is resampled or interpolated. Spacings within the
 tolerance are accepted as they are; samples still get equal weight.
 
-Timestamps must be integers and strictly increasing; duplicates and backwards
-steps are errors.
+Timestamps must be integers inside the signed 64-bit range and strictly
+increasing; duplicates, backwards steps and values that do not fit in int64
+(including unsigned values above 2**63 - 1) are errors, never wrapped.
 
 ## Gaps
 

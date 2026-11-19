@@ -30,6 +30,8 @@ MOVING_AVERAGE = "moving_average"
 MOVING_AVERAGE_VERSION = 1
 ALIGNMENTS = ("centered", "trailing")
 DEFAULT_JITTER_TOLERANCE = 0.1
+INT64_MIN = int(np.iinfo(np.int64).min)
+INT64_MAX = int(np.iinfo(np.int64).max)
 
 
 class IrregularSamplingError(ValueError):
@@ -142,9 +144,10 @@ def moving_average(
     """Equal-weight moving average over ``window_samples`` consecutive samples.
 
     Raises ``ValueError`` for invalid parameters, mismatched lengths and
-    timestamps that are not strictly increasing integers, and
-    :class:`IrregularSamplingError` (a ``ValueError``) when a spacing differs
-    from the nominal period by more than ``jitter_tolerance`` of it.
+    timestamps that are not strictly increasing integers in the signed 64-bit
+    range, and :class:`IrregularSamplingError` (a ``ValueError``) when a
+    spacing differs from the nominal period by more than ``jitter_tolerance``
+    of it.
     ``signal`` and ``unit`` are carried through unchanged; the output has the
     same unit as the input.
     """
@@ -158,7 +161,10 @@ def moving_average(
     times = _checked_times(times_ns)
     raw = np.array(values, dtype=np.float64)
     valid = np.isfinite(raw)
-    spacing = np.diff(times)
+    # Strictly increasing int64 values are at most 2**64 - 1 apart, so the
+    # difference taken modulo 2**64 in uint64 is exact where int64 would wrap.
+    unsigned = times.view(np.uint64)
+    spacing = unsigned[1:] - unsigned[:-1]
     is_time_gap = (
         spacing >= params.gap_ns if params.gap_ns is not None else np.zeros(spacing.shape, bool)
     )
@@ -173,12 +179,14 @@ def moving_average(
 
     output = np.full(raw.shape, np.nan)
     window = params.window_samples
-    kernel = np.ones(window)
     offset = window - 1 if params.alignment == "trailing" else (window - 1) // 2
-    segments = 0
-    for start, stop in _segments(valid, is_time_gap):
-        segments += 1
-        if stop - start >= window:
+    segments = _segments(valid, is_time_gap)
+    fitting = [(start, stop) for start, stop in segments if stop - start >= window]
+    if fitting:
+        # Built only when some segment can hold a full window, so an oversized
+        # window_samples never allocates a window-length array.
+        kernel = np.ones(window)
+        for start, stop in fitting:
             means = np.convolve(raw[start:stop], kernel, mode="valid") / window
             output[start + offset : start + offset + means.size] = means
 
@@ -193,7 +201,7 @@ def moving_average(
         times_ns=times,
         values=output,
         nominal_period_ns=period,
-        segment_count=segments,
+        segment_count=len(segments),
         missing_count=missing,
         edge_count=int(np.count_nonzero(valid & np.isnan(output))),
         signal=signal,
@@ -237,10 +245,21 @@ def _checked_times(times_ns: Sequence[int]) -> npt.NDArray[np.int64]:
     times = np.array(times_ns)
     if times.size == 0:
         return np.zeros(0, dtype=np.int64)
-    if times.dtype.kind not in "iu":
+    if times.dtype.kind == "u":
+        too_large = np.flatnonzero(times > INT64_MAX)
+        if too_large.size:
+            index = int(too_large[0])
+            raise ValueError(_out_of_range(index, int(times[index])))
+    elif times.dtype.kind != "i":
+        # Python ints past the int64 range make numpy infer a float or object
+        # array, so report those as out of range rather than as non-integers.
+        for index, value in enumerate(times_ns):
+            if _is_int(value) and not INT64_MIN <= int(value) <= INT64_MAX:
+                raise ValueError(_out_of_range(index, int(value)))
         raise ValueError(f"times_ns must be integer nanoseconds, got {times.dtype} values")
     times = times.astype(np.int64)
-    backwards = np.flatnonzero(np.diff(times) <= 0)
+    # Compare neighbours instead of subtracting, which can overflow int64.
+    backwards = np.flatnonzero(times[1:] <= times[:-1])
     if backwards.size:
         index = int(backwards[0]) + 1
         raise ValueError(
@@ -250,8 +269,15 @@ def _checked_times(times_ns: Sequence[int]) -> npt.NDArray[np.int64]:
     return times
 
 
+def _out_of_range(index: int, value: int) -> str:
+    return (
+        f"times_ns must fit in signed 64-bit integer nanoseconds: sample {index} is "
+        f"{value} ns, outside [{INT64_MIN}, {INT64_MAX}]"
+    )
+
+
 def _nominal_period(
-    spacing: npt.NDArray[np.int64], is_time_gap: npt.NDArray[np.bool_], tolerance: float
+    spacing: npt.NDArray[np.uint64], is_time_gap: npt.NDArray[np.bool_], tolerance: float
 ) -> float | None:
     """Median spacing outside time gaps; raise if any such spacing strays too far."""
 
