@@ -102,6 +102,23 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _finite_float(value: object) -> float | None:
+    """Return a JSON number as a finite float, or None when it cannot be one.
+
+    JSON integers are unbounded, so ``float()`` and ``isfinite()`` raise
+    ``OverflowError`` for integers beyond the float range. Such values are
+    reported as ordinary validation issues instead.
+    """
+
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if isfinite(number) else None
+
+
 class _Validator:
     """Collect every issue in one pass over already-bounded JSON data."""
 
@@ -291,16 +308,13 @@ class _Validator:
         bounds: tuple[float, float] | None = None
         if "range" in data:
             raw = data["range"]
-            if (
-                not isinstance(raw, list)
-                or len(raw) != 2
-                or not all(_is_number(item) and isfinite(item) for item in raw)
-            ):
-                self.issue(f"{location}.range", "type", "must be [minimum, maximum] numbers")
-            elif not raw[0] < raw[1]:
+            ends = [_finite_float(item) for item in raw] if isinstance(raw, list) else []
+            if len(ends) != 2 or ends[0] is None or ends[1] is None:
+                self.issue(f"{location}.range", "type", "must be [minimum, maximum] finite numbers")
+            elif not ends[0] < ends[1]:
                 self.issue(f"{location}.range", "invalid_value", "minimum must be below maximum")
             else:
-                bounds = (float(raw[0]), float(raw[1]))
+                bounds = (ends[0], ends[1])
         if len(self.issues) != before or axis_id is None:
             return None
         return AxisPreference(axis_id, side, label, unit, bounds)
@@ -347,22 +361,23 @@ class _Validator:
                     f"must be one of {sorted(SPLIT_ORIENTATIONS)}",
                 )
             weights = data.get("weights")
+            sizes = [_finite_float(w) for w in weights] if isinstance(weights, list) else None
             if "weights" in data and (
-                not isinstance(weights, list)
-                or len(weights) != len(raw_children)
-                or not all(_is_number(w) and isfinite(w) and w > 0 for w in weights)
+                sizes is None
+                or len(sizes) != len(raw_children)
+                or not all(w is not None and w > 0 for w in sizes)
             ):
                 self.issue(
                     f"{location}.weights",
                     "invalid_value",
-                    "must be one positive number per child",
+                    "must be one positive finite number per child",
                 )
             if len(self.issues) != before:
                 return None
             return SplitLayout(
                 str(orientation),
                 tuple(child for child in children if child is not None),
-                tuple(float(w) for w in weights) if isinstance(weights, list) else None,
+                tuple(w for w in sizes if w is not None) if sizes is not None else None,
             )
 
         current = data.get("current", 0)

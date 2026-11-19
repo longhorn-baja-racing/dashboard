@@ -12,6 +12,7 @@ import pytest
 from lbr_dashboard.workspace import (
     CURRENT_VERSION,
     WORKSPACE_FORMAT,
+    AxisPreference,
     SignalBinding,
     SplitLayout,
     TabLayout,
@@ -300,6 +301,99 @@ def test_multiline_description_is_allowed_but_bounded() -> None:
     assert workspace_from_dict(data).description == "line one\n\tline two"
     data["description"] = "x" * 2001
     assert issue_at(data, "$.description").code == "too_long"
+
+
+# Integers beyond the float range ---------------------------------------------------
+
+HUGE = 10**400  # a valid JSON integer that no float can represent
+
+
+@pytest.mark.parametrize("value", [[0, HUGE], [-HUGE, 0], [HUGE, HUGE + 1]])
+def test_axis_range_beyond_float_range_is_a_workspace_error(value: list[int]) -> None:
+    data = minimal()
+    data["widgets"][0]["axes"][0]["range"] = value
+    text = json.dumps(data)
+    with pytest.raises(WorkspaceError) as caught:
+        loads_workspace(text)
+    issues = {(i.location, i.code) for i in caught.value.issues}
+    assert ("$.widgets[0].axes[0].range", "type") in issues
+
+
+def test_split_weight_beyond_float_range_is_a_workspace_error() -> None:
+    layout = {
+        "kind": "split",
+        "orientation": "vertical",
+        "children": [leaf("plot"), leaf("table")],
+        "weights": [1, HUGE],
+    }
+    text = json.dumps(two_widgets(layout))
+    with pytest.raises(WorkspaceError) as caught:
+        loads_workspace(text)
+    assert [(i.location, i.code) for i in caught.value.issues] == [
+        ("$.layout.weights", "invalid_value")
+    ]
+
+
+def test_every_oversized_integer_is_reported_together() -> None:
+    data = two_widgets(
+        {
+            "kind": "split",
+            "orientation": "vertical",
+            "children": [leaf("plot"), leaf("table")],
+            "weights": [HUGE, 1],
+        }
+    )
+    data["widgets"][0]["axes"][0]["range"] = [0, HUGE]
+    with pytest.raises(WorkspaceError) as caught:
+        workspace_from_dict(data)
+    assert {i.location for i in caught.value.issues} >= {
+        "$.widgets[0].axes[0].range",
+        "$.layout.weights",
+    }
+
+
+def test_large_integers_that_fit_in_a_float_are_accepted() -> None:
+    data = two_widgets(
+        {
+            "kind": "split",
+            "orientation": "vertical",
+            "children": [leaf("plot"), leaf("table")],
+            "weights": [10**300, 1],
+        }
+    )
+    data["widgets"][0]["axes"][0]["range"] = [-(10**300), 10**300]
+    workspace = loads_workspace(json.dumps(data))
+    assert workspace.widgets[0].axes[0].range == (-1e300, 1e300)
+    assert isinstance(workspace.layout, SplitLayout)
+    assert workspace.layout.weights == (1e300, 1.0)
+
+
+def test_range_ends_that_collapse_to_one_float_are_rejected() -> None:
+    data = minimal()
+    data["widgets"][0]["axes"][0]["range"] = [2**60, 2**60 + 1]
+    assert issue_at(data, "$.widgets[0].axes[0].range").code == "invalid_value"
+
+
+def test_oversized_integers_built_in_code_cannot_be_serialized() -> None:
+    plot = WidgetConfig(
+        "plot",
+        "time_plot",
+        axes=(AxisPreference("left", range=(0, HUGE)),),
+    )
+    split = SplitLayout(
+        "vertical",
+        (WidgetRef("plot"), WidgetRef("table")),
+        (1, HUGE),
+    )
+    workspace = Workspace(
+        name="Huge", widgets=(plot, WidgetConfig("table", "raw_table")), layout=split
+    )
+    with pytest.raises(WorkspaceError) as caught:
+        dumps_workspace(workspace)
+    assert {i.location for i in caught.value.issues} >= {
+        "$.widgets[0].axes[0].range",
+        "$.layout.weights",
+    }
 
 
 # Layout ---------------------------------------------------------------------------

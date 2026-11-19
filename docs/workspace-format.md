@@ -91,7 +91,8 @@ Widget:
 Axis preference (`time_plot` only): `id` (required, unique within the widget),
 `side` (`left` or `right`, default `left`), `label`, `unit` (a display label;
 no conversion is implied), and `range` (`[minimum, maximum]` with
-minimum < maximum; omit for auto range).
+minimum < maximum; omit for auto range). Range ends and split weights must be
+finite numbers that fit in a double; larger integers are rejected.
 
 Signal binding: `signal` (required descriptor ID, opaque to the workspace),
 `label`, `color` (`#rrggbb`), and `axis` (`time_plot` only; must name one of

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -142,6 +143,28 @@ def test_corrupt_primary_recovers_from_backup(tmp_path: Path) -> None:
     assert result.workspace.name == "First"
     assert result.primary_error is not None and result.primary_error.codes == {"json"}
     assert path.read_bytes() == b"\x00garbage"
+    with pytest.raises(WorkspaceError):
+        load_workspace(path, use_backup=False)
+
+
+def test_primary_with_integer_beyond_float_range_recovers_from_backup(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "layout.json"
+    save_workspace(path, make("First"))
+    save_workspace(path, make("Second"))
+    document = json.loads(path.read_text())
+    document["widgets"] = [
+        {"id": "values", "type": "time_plot", "axes": [{"id": "left", "range": [0, 10**400]}]}
+    ]
+    path.write_text(json.dumps(document))
+    result = load_workspace(path)
+    assert result.recovered and result.workspace.name == "First"
+    assert result.primary_error is not None
+    assert any(
+        issue.location == "$.widgets[0].axes[0].range" and issue.code == "type"
+        for issue in result.primary_error.issues
+    )
     with pytest.raises(WorkspaceError):
         load_workspace(path, use_backup=False)
 
