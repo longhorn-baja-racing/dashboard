@@ -220,7 +220,27 @@ class ReplayController(QObject):
                     dock.cursor.hide()
                 continue
 
-            dock.selected_reading.setText(selected_reading(view, descriptor, frame.selected_ns))
+            bindings = dock.multi_plot.bindings if dock.multi_plot is not None else {}
+            if len(bindings) > 1:
+                readings = []
+                for binding in bindings.values():
+                    item = workspace.descriptor(binding.signal_id)
+                    if item is None or item.source_id != binding.source_id:
+                        readings.append(f"{binding.signal_id} — missing signal")
+                    elif (
+                        item.source_id != frame.reference[1]
+                        or view.domains.get(item.identifier, item.timestamp_domain)
+                        != frame.reference[2]
+                    ):
+                        readings.append(f"{binding.signal_id} — no aligned reading")
+                    else:
+                        readings.append(
+                            f"{item.display_name} [{binding.unit or 'unit unspecified'}] — "
+                            + selected_reading(view, item, frame.selected_ns)
+                        )
+                dock.selected_reading.setText("\n".join(readings))
+            else:
+                dock.selected_reading.setText(selected_reading(view, descriptor, frame.selected_ns))
             if dock.plot is None or dock.origin_ns is None:
                 continue
             plot = dock.plot.getPlotItem()
