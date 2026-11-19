@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import isfinite
 from time import monotonic_ns
 
 import pyqtgraph as pg
@@ -20,9 +21,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .core import PlaybackMode, SessionClock, SessionSnapshot, TelemetrySession
+from .core import (
+    ClockSnapshot,
+    PlaybackMode,
+    SessionClock,
+    SessionSnapshot,
+    SignalDescriptor,
+    TelemetrySession,
+)
 from .ui.main_window import MainWindow
 from .ui.replay_bar import SLIDER_STEPS
+
+
+def selected_reading(view: SessionSnapshot, descriptor: SignalDescriptor, selected_ns: int) -> str:
+    rate = descriptor.nominal_rate_hz
+    # Without a declared cadence, require an exact measured timestamp.
+    tolerance = min(500_000_000 / rate, 2**63 - 1) if rate else 0
+    sample = view.nearest(descriptor.identifier, selected_ns, max_distance_ns=int(tolerance))
+    if sample is None or not sample.sample.available:
+        return "Selected: no available reading"
+    reading = sample.sample
+    unit = reading.unit or descriptor.canonical_unit
+    return f"Selected: {reading.value}{' ' + unit if unit else ''} at {reading.timestamp_ns} ns"
 
 
 class ReplayController(QObject):
@@ -127,7 +147,7 @@ class ReplayController(QObject):
         self.window.replay_bar.display(
             self.clock.snapshot(), ready=self._ready, live=self._live, busy=self._busy
         )
-        # The plot uses time relative to the selected signal's first retained record.
+        # The plot keeps its origin stable while the live retention window moves.
         frame = self.clock.snapshot()
         view = self._snapshot
         selected = self.window.left_panel.signal_browser.selected_id
@@ -137,7 +157,9 @@ class ReplayController(QObject):
             if view
             else None
         )
-        plot = self.window.right_panel.plot_widget.getPlotItem()
+        panel = self.window.right_panel
+        readout = panel.selected_reading
+        plot = panel.plot_widget.getPlotItem()
         if self.cursor is not None and self.cursor.scene() is None:
             self.cursor = None
         aligned = (
@@ -153,14 +175,124 @@ class ReplayController(QObject):
             )
             == frame.reference[1:]
         )
-        if records and aligned and frame.selected_ns is not None and plot is not None:
+        if (
+            records
+            and aligned
+            and frame.selected_ns is not None
+            and plot is not None
+            and panel.time_plot.identity == (self._session, selected)
+        ):
             if self.cursor is None:
                 self.cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("#ffcc00", width=2))
+                self.cursor.sigPositionChangeFinished.connect(self._cursor_dragged)
                 plot.addItem(self.cursor, ignoreBounds=True)
-            self.cursor.setValue((frame.selected_ns - records[0].sample.timestamp_ns) / 1e9)
+            self.cursor.setMovable(not self._live and self._ready and not self._busy)
+            if not self.cursor.moving:
+                self.cursor.setValue((frame.selected_ns - panel.time_plot.origin_ns) / 1e9)
             self.cursor.show()
-        elif self.cursor is not None:
-            self.cursor.hide()
+            assert view is not None and descriptor is not None
+            readout.setText(selected_reading(view, descriptor, frame.selected_ns))
+        else:
+            if self.cursor is not None:
+                self.cursor.hide()
+            readout.setText("Selected: no aligned reading")
+        self._present_docks(frame, view)
+
+    def _present_docks(self, frame: ClockSnapshot, view: SessionSnapshot | None) -> None:
+        workspace = self.window.workspace_docks
+        for dock in workspace.docks.values():
+            if dock.cursor is not None and dock.cursor.scene() is None:
+                dock.cursor = None
+            descriptor = workspace.descriptor(dock.binding[0]) if dock.binding else None
+            if (
+                view is None
+                or frame.reference is None
+                or frame.selected_ns is None
+                or descriptor is None
+                or descriptor.source_id != frame.reference[1]
+                or dock.binding != (descriptor.identifier, frame.reference[1])
+                or descriptor.identifier not in view.series
+                or view.domains.get(descriptor.identifier, descriptor.timestamp_domain)
+                != frame.reference[2]
+            ):
+                dock.selected_reading.setText("Selected: no aligned reading")
+                if dock.cursor is not None:
+                    dock.cursor.hide()
+                continue
+
+            bindings = dock.multi_plot.bindings if dock.multi_plot is not None else {}
+            if len(bindings) > 1:
+                readings = []
+                for binding in bindings.values():
+                    item = workspace.descriptor(binding.signal_id)
+                    if item is None or item.source_id != binding.source_id:
+                        readings.append(f"{binding.signal_id} — missing signal")
+                    elif (
+                        item.source_id != frame.reference[1]
+                        or view.domains.get(item.identifier, item.timestamp_domain)
+                        != frame.reference[2]
+                    ):
+                        readings.append(f"{binding.signal_id} — no aligned reading")
+                    else:
+                        readings.append(
+                            f"{item.display_name} [{binding.unit or 'unit unspecified'}] — "
+                            + selected_reading(view, item, frame.selected_ns)
+                        )
+                dock.selected_reading.setText("\n".join(readings))
+            else:
+                dock.selected_reading.setText(selected_reading(view, descriptor, frame.selected_ns))
+            if dock.plot is None or dock.origin_ns is None:
+                continue
+            plot = dock.plot.getPlotItem()
+            if plot is None:
+                continue
+            if dock.cursor is None:
+                dock.cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("#ffcc00", width=2))
+                dock.cursor.sigPositionChangeFinished.connect(self._cursor_dragged)
+                plot.addItem(dock.cursor, ignoreBounds=True)
+            dock.cursor.setMovable(not self._live and self._ready and not self._busy)
+            if not dock.cursor.moving:
+                dock.cursor.setValue((frame.selected_ns - dock.origin_ns) / 1e9)
+            dock.cursor.show()
+
+    def _cursor_dragged(self, cursor: pg.InfiniteLine) -> None:
+        if self._live or self._busy or not self._ready or not cursor.isVisible():
+            return
+        panel = self.window.right_panel
+        if cursor is self.cursor:
+            origin = panel.time_plot.origin_ns
+        else:
+            origin = next(
+                (
+                    dock.origin_ns
+                    for dock in self.window.workspace_docks.docks.values()
+                    if dock.cursor is cursor
+                ),
+                None,
+            )
+            if origin is None:
+                return
+        frame = self.clock.snapshot()
+        position = cursor.value()
+        if (
+            frame.start_ns is None
+            or frame.end_ns is None
+            or not isinstance(position, (int, float))
+            or not isfinite(position)
+        ):
+            self.present()
+            return
+        low = (frame.start_ns - origin) / 1e9
+        high = (frame.end_ns - origin) / 1e9
+        target = (
+            frame.start_ns
+            if position <= low
+            else frame.end_ns
+            if position >= high
+            else (origin + round(position * 1e9))
+        )
+        self.clock.seek(target)
+        self.present()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() != QEvent.Type.KeyPress or not isinstance(event, QKeyEvent):

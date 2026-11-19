@@ -15,6 +15,7 @@ from lbr_dashboard.core import (
     SignalSchema,
     TelemetrySession,
 )
+from lbr_dashboard.replay_controller import selected_reading
 from lbr_dashboard.source_controller import SourceController
 from lbr_dashboard.ui.replay_bar import SLIDER_STEPS
 
@@ -202,6 +203,62 @@ def test_large_exact_timestamp_slider_and_single_sample(transport):
     )
     assert replay.clock.snapshot().selected_ns == -7
     assert not window.replay_bar.play.isEnabled() and not window.replay_bar.slider.isEnabled()
+
+
+def test_cursor_gesture_uses_the_shared_clock_and_exposes_missing_readings(
+    transport, qtbot, tmp_path
+):
+    window, owner, _ = transport
+    path = tmp_path / "clock.csv"
+    path.write_text("timestamp_ms,pressure\n0,0\n10,\n30,7\n", encoding="utf-8")
+    owner.open_csv(path)
+    replay = owner.replay
+    qtbot.waitUntil(lambda: owner._finished_rendered and replay.cursor is not None)
+    cursor = replay.cursor
+    assert cursor is not None
+    panel = window.right_panel
+    assert panel.selected_reading.text() == "Selected: 0.0 at 0 ns"
+    workspace = window.workspace_docks
+    other = workspace.add("plot")
+    readout = workspace.add("value")
+    other.bind_selected()
+    readout.bind_selected()
+    qtbot.waitUntil(lambda: other.cursor is not None)
+    second_cursor = other.cursor
+    assert second_cursor is not None and second_cursor is not cursor
+
+    for moved, position, time, message in (
+        (cursor, 0.03, 30_000_000, "Selected: 7.0 at 30000000 ns"),
+        (second_cursor, 0.01, 10_000_000, "Selected: no available reading"),
+        (cursor, 0.025, 25_000_000, "Selected: no available reading"),
+        (second_cursor, 0.0, 0, "Selected: 0.0 at 0 ns"),
+    ):
+        previous = replay.clock.snapshot()
+        moved.setValue(position)
+        assert replay.clock.snapshot() == previous
+        moved.sigPositionChangeFinished.emit(moved)
+        frame = replay.clock.snapshot()
+        assert frame.selected_ns == time
+        assert frame.revision == previous.revision + 1
+        assert cursor.value() == second_cursor.value() == position
+        assert panel.selected_reading.text() == message
+        assert other.selected_reading.text() == readout.selected_reading.text() == message
+        assert window.replay_bar.slider.value() == round(time / 30_000_000 * SLIDER_STEPS)
+
+
+def test_current_reading_uses_each_signals_cadence_and_preserves_gaps():
+    fast = SignalDescriptor("lab.fast", "Fast", ("lab",), "numeric", "bench", nominal_rate_hz=100)
+    slow = SignalDescriptor("lab.slow", "Slow", ("lab",), "numeric", "bench", nominal_rate_hz=10)
+    session = TelemetrySession(SignalSchema(1, (fast, slow)))
+    session.extend(fast.identifier, (SignalSample(0, 3), SignalSample(10_000_000, 7)))
+    session.extend(
+        slow.identifier,
+        (SignalSample(0, 0, unit="Pa"), SignalSample(100_000_000, None, available=False)),
+    )
+    snapshot = session.snapshot()
+    assert selected_reading(snapshot, fast, 40_000_000) == "Selected: no available reading"
+    assert selected_reading(snapshot, slow, 40_000_000) == "Selected: 0 Pa at 0 ns"
+    assert selected_reading(snapshot, slow, 60_000_000) == "Selected: no available reading"
 
 
 def test_live_pause_follow_disconnect_and_finite_switch(transport, qtbot):
