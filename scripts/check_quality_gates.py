@@ -33,12 +33,33 @@ def check(args: list[str], directory: Path) -> subprocess.CompletedProcess[str]:
 
 
 def copy_project(directory: Path) -> None:
-    for folder in ("src", "tests", "scripts", "sample_data"):
-        shutil.copytree(
-            ROOT / folder, directory / folder, ignore=shutil.ignore_patterns("__pycache__")
-        )
-    for name in ("pyproject.toml", "uv.lock", "README.md", ".python-version"):
-        shutil.copy2(ROOT / name, directory / name)
+    # Tests read documentation, license and packaging files too, so copy every
+    # project folder and top-level file that exists.
+    for folder in (
+        "src",
+        "tests",
+        "scripts",
+        "sample_data",
+        "docs",
+        "licenses",
+        "packaging",
+        ".github",
+    ):
+        if (ROOT / folder).is_dir():
+            shutil.copytree(
+                ROOT / folder, directory / folder, ignore=shutil.ignore_patterns("__pycache__")
+            )
+    for name in (
+        "pyproject.toml",
+        "uv.lock",
+        "README.md",
+        ".python-version",
+        "LICENSE",
+        "Makefile",
+        "requirements.txt",
+    ):
+        if (ROOT / name).is_file():
+            shutil.copy2(ROOT / name, directory / name)
     # Use this process's already locked environment for the actual Pyright checks.
     # All rule settings remain those in the copied project configuration.
     config = directory / "pyproject.toml"
