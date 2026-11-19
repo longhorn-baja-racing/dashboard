@@ -139,13 +139,13 @@ def test_reorder_window_limits_late_packets() -> None:
 
 
 @pytest.mark.parametrize(
-    ("bits", "values", "lost", "duplicates", "out_of_order", "rollovers", "resets"),
+    ("bits", "values", "lost", "duplicates", "out_of_order", "rollovers", "suspected"),
     [
-        pytest.param(8, [*range(21), *range(30)], 0, 0, 0, 0, 1, id="early-reboot-u8"),
-        pytest.param(16, [*range(21), *range(30)], 0, 0, 0, 0, 1, id="early-reboot-u16"),
-        pytest.param(8, [*range(250, 256), *range(11), *range(5)], 0, 0, 0, 1, 1, id="after-wrap"),
+        pytest.param(8, [*range(21), *range(30)], 0, 21, 0, 0, 1, id="early-reboot-u8"),
+        pytest.param(16, [*range(21), *range(30)], 0, 21, 0, 0, 1, id="early-reboot-u16"),
+        pytest.param(8, [*range(250, 256), *range(11), *range(5)], 0, 5, 0, 1, 1, id="after-wrap"),
         pytest.param(
-            16, [*range(100, 120), *range(105, 140)], 0, 0, 0, 0, 1, id="replay-in-window"
+            16, [*range(100, 120), *range(105, 140)], 0, 15, 0, 0, 1, id="replay-in-window"
         ),
         pytest.param(16, [*range(11), 5, 11], 0, 1, 0, 0, 0, id="single-dup"),
         pytest.param(16, [*range(11), 5, 5, 11], 0, 2, 0, 0, 0, id="dup-pair"),
@@ -154,36 +154,90 @@ def test_reorder_window_limits_late_packets() -> None:
         pytest.param(
             8, [250, 251, 253, 254, 255, 0, 1, 1, 3, 2], 1, 1, 1, 1, 0, id="u8-mixed-wrap"
         ),
+        pytest.param(16, [10, 11, 12, 10, 11, 13], 0, 2, 0, 0, 1, id="duplicated-delivery"),
+        pytest.param(16, [10, 11, 12, 10, 11, 12, 13], 0, 3, 0, 0, 1, id="whole-tail-replayed"),
+        pytest.param(16, [10, 11, 12, 10, 11, 15], 2, 2, 0, 0, 1, id="replay-then-real-gap"),
+        pytest.param(16, [*range(21), 0, 1, 2, 4, 5, 21], 0, 5, 0, 0, 1, id="replay-skips-one"),
     ],
 )
-def test_restart_within_reorder_window(
+def test_replay_within_reorder_window_is_only_suspected(
     bits: int,
     values: list[int],
     lost: int,
     duplicates: int,
     out_of_order: int,
     rollovers: int,
-    resets: int,
+    suspected: int,
 ) -> None:
     seq = SequenceTracker(bits)
     _feed(seq, values)
     counts = seq.counts()
     assert (counts.lost, counts.duplicates, counts.out_of_order) == (lost, duplicates, out_of_order)
-    assert (counts.rollovers, counts.resets) == (rollovers, resets)
+    assert (counts.rollovers, counts.suspected_resets) == (rollovers, suspected)
+    assert counts.resets == 0
     assert counts.packets == len(values)
 
 
-def test_reboot_reset_is_reported_at_the_successor() -> None:
+def test_duplicated_delivery_is_not_a_confirmed_reset_or_loss() -> None:
+    # The transport repeats 10 and 11; 12 was received and 13 continues the run.
+    seq = SequenceTracker(16)
+    assert _feed(seq, [10, 11, 12, 10, 11, 13]) == [
+        SequenceStep.BASELINE,
+        SequenceStep.IN_ORDER,
+        SequenceStep.IN_ORDER,
+        SequenceStep.DUPLICATE,
+        SequenceStep.SUSPECTED_RESET,
+        SequenceStep.IN_ORDER,
+    ]
+    counts = seq.counts()
+    assert (counts.resets, counts.suspected_resets) == (0, 1)
+    assert (counts.lost, counts.duplicates) == (0, 2)
+    assert counts.loss_fraction == 0.0
+
+
+def test_suspected_reset_replay_is_counted_once() -> None:
     seq = SequenceTracker(8)
     _feed(seq, list(range(21)))
-    assert _feed(seq, [0, 1, 2, 4]) == [
+    assert _feed(seq, [0, 1, 2, 4, 5, 20, 21, 23]) == [
         SequenceStep.DUPLICATE,
-        SequenceStep.RESET,
+        SequenceStep.SUSPECTED_RESET,
+        SequenceStep.DUPLICATE,
+        SequenceStep.DUPLICATE,
+        SequenceStep.DUPLICATE,
+        SequenceStep.DUPLICATE,
         SequenceStep.IN_ORDER,
         SequenceStep.GAP,
     ]
     counts = seq.counts()
-    assert (counts.duplicates, counts.resets, counts.lost) == (0, 1, 1)
+    assert (counts.duplicates, counts.suspected_resets, counts.resets, counts.lost) == (6, 1, 0, 1)
+
+
+def test_replay_that_steps_back_can_raise_a_new_suspicion() -> None:
+    seq = SequenceTracker(16)
+    _feed(seq, list(range(20)))
+    _feed(seq, [5, 6, 7, 2, 3, 20])
+    counts = seq.counts()
+    assert (counts.duplicates, counts.suspected_resets, counts.resets, counts.lost) == (5, 2, 0, 0)
+
+
+def test_suspected_replay_still_takes_back_late_losses() -> None:
+    seq = SequenceTracker(16)
+    # 13 is lost, then 10, 11 are replayed and the late 13 arrives in the replay.
+    steps = _feed(seq, [10, 11, 12, 14, 10, 11, 13, 15])
+    assert steps[5] is SequenceStep.SUSPECTED_RESET
+    assert steps[6] is SequenceStep.OUT_OF_ORDER
+    counts = seq.counts()
+    assert (counts.lost, counts.duplicates, counts.out_of_order) == (0, 2, 1)
+    assert (counts.resets, counts.suspected_resets) == (0, 1)
+
+
+def test_reconnect_after_suspected_replay_is_a_confirmed_reset() -> None:
+    seq = SequenceTracker(16)
+    _feed(seq, [10, 11, 12, 10, 11])
+    seq.restart()
+    assert _feed(seq, [0, 1]) == [SequenceStep.RESET, SequenceStep.IN_ORDER]
+    counts = seq.counts()
+    assert (counts.resets, counts.suspected_resets, counts.lost) == (1, 1, 0)
 
 
 def test_mid_stream_reset_starts_new_run() -> None:
@@ -660,6 +714,19 @@ def test_format_after_reconnect_and_disconnect() -> None:
     rows = dict(format_source_health(tracker.snapshot()))
     assert rows["Status"] == "Disconnected"
     assert rows["Connection"] == "disconnected (2 connects, 2 disconnects)"
+
+
+def test_format_shows_suspected_resets_apart_from_confirmed_ones() -> None:
+    tracker, _ = _tracker(sequence_bits=16)
+    tracker.observe_connect()
+    for number in (10, 11, 12, 10, 11, 13):
+        tracker.observe_packet(sequence=number)
+    rows = dict(format_source_health(tracker.snapshot()))
+    assert rows["Lost packets"] == "0 (0.00% of expected)"
+    assert rows["Duplicates / out of order"] == "2 duplicates, 0 out of order"
+    assert rows["Sequence"] == (
+        "0 rollovers, 0 resets, 1 suspected resets (16-bit counter, 6 numbered packets)"
+    )
 
 
 @pytest.mark.parametrize(

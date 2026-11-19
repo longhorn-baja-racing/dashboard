@@ -66,6 +66,12 @@ class SequenceStep(Enum):
     OUT_OF_ORDER = "out of order"
     RESET = "reset"
     """The counter restarted; a new run begins and nothing is counted as lost."""
+    SUSPECTED_RESET = "suspected reset"
+    """A replay that may be a restarted counter or duplicated delivery.
+
+    It is counted as a duplicate and in ``suspected_resets``; the current run
+    continues, so nothing is counted as lost because of it.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +88,9 @@ class SequenceCounts:
     out_of_order: int
     rollovers: int
     resets: int
+    """Confirmed counter restarts: large steps back, or a step back after a reconnect."""
+    suspected_resets: int = 0
+    """Short replays of received numbers that may be a restart or duplicated delivery."""
 
     @property
     def loss_fraction(self) -> float | None:
@@ -104,9 +113,14 @@ class SequenceTracker:
       or out of order if it predates the start of the run, otherwise a
       duplicate. Repeating the newest number is also a duplicate.
     - two packets in a row that both step back to numbers already received,
-      the second being the successor of the first (n, n + 1), are a counter
-      that restarted and is climbing again (for example a reboot): the run is
-      a reset starting at n, and the duplicate counted for n is taken back.
+      the second being the successor of the first (n, n + 1), may be a counter
+      that restarted and is climbing again (for example a reboot), or the
+      transport delivering the same packets twice. The two cannot be told
+      apart, so the pair is a suspected reset: both packets stay duplicates,
+      ``suspected_resets`` grows by one, and the current run continues. Later
+      packets that keep stepping forward through received numbers belong to
+      the same replay. Because the run is kept, a number received before the
+      replay is never counted as lost after it.
       A lone repeat, a repeated pair (n, n) or late packets that fill counted
       losses keep their duplicate or out-of-order classification.
     - a step backward by more than ``reorder_window`` (or by exactly half the
@@ -135,8 +149,9 @@ class SequenceTracker:
         self._missing: set[int] = set()
         self._restarted = False
         self._pending_duplicate: int | None = None  # Previous packet, if a behind duplicate.
+        self._replay_next: int | None = None  # Next number of a suspected-reset replay.
         self._packets = self._lost = self._duplicates = 0
-        self._out_of_order = self._rollovers = self._resets = 0
+        self._out_of_order = self._rollovers = self._resets = self._suspected_resets = 0
 
     @property
     def modulus(self) -> int:
@@ -153,7 +168,8 @@ class SequenceTracker:
             raise ValueError(f"sequence {value} does not fit in {self._bits} bits")
         self._packets += 1
         pending = self._pending_duplicate
-        self._pending_duplicate = None
+        replay = self._replay_next
+        self._pending_duplicate = self._replay_next = None
         newest = self._newest
         if newest is None:
             return self._begin_run(value, SequenceStep.BASELINE)
@@ -176,20 +192,24 @@ class SequenceTracker:
         if behind >= self._span:
             self._out_of_order += 1  # Older than the run; it was never counted.
             return SequenceStep.OUT_OF_ORDER
+        in_replay = replay is not None and (value - replay) % self._modulus < self._modulus // 2
+        if in_replay:
+            self._replay_next = (value + 1) % self._modulus
         if value in self._missing:
             self._missing.discard(value)
             self._lost -= 1
             self._out_of_order += 1
             return SequenceStep.OUT_OF_ORDER
-        if pending is not None and value == (pending + 1) % self._modulus:
-            # A restarted counter replaying received numbers in order: the run
-            # began at the previous packet, which was provisionally a duplicate.
-            self._duplicates -= 1
-            self._resets += 1
-            self._begin_run(pending, SequenceStep.RESET)
-            self._advance(value, 1)
-            return SequenceStep.RESET
         self._duplicates += 1
+        if in_replay:
+            return SequenceStep.DUPLICATE
+        if pending is not None and value == (pending + 1) % self._modulus:
+            # Received numbers replayed in order: a restarted counter or the
+            # transport repeating packets. Keep the run, so numbers received
+            # before the replay are not counted as lost if it continues.
+            self._suspected_resets += 1
+            self._replay_next = (value + 1) % self._modulus
+            return SequenceStep.SUSPECTED_RESET
         self._pending_duplicate = value
         return SequenceStep.DUPLICATE
 
@@ -203,6 +223,7 @@ class SequenceTracker:
             out_of_order=self._out_of_order,
             rollovers=self._rollovers,
             resets=self._resets,
+            suspected_resets=self._suspected_resets,
         )
 
     def _begin_run(self, value: int, step: SequenceStep) -> SequenceStep:
@@ -693,8 +714,9 @@ def _sequence_rows(counts: SequenceCounts | None) -> list[tuple[str, str]]:
     if fraction is not None:
         lost += f" ({fraction * 100:.2f}% of expected)"
     order = f"{counts.duplicates} duplicates, {counts.out_of_order} out of order"
+    suspected = f", {counts.suspected_resets} suspected resets" if counts.suspected_resets else ""
     runs = (
-        f"{counts.rollovers} rollovers, {counts.resets} resets "
+        f"{counts.rollovers} rollovers, {counts.resets} resets{suspected} "
         f"({counts.bits}-bit counter, {counts.packets} numbered packets)"
     )
     return [

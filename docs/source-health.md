@@ -50,7 +50,7 @@ snapshot and `unknown (...)` in the text. It is never shown as `0`.
 
 | Config | Default | When absent |
 | --- | --- | --- |
-| `sequence_bits` | `None` | lost, duplicates, out of order, rollovers and resets are unknown |
+| `sequence_bits` | `None` | lost, duplicates, out of order, rollovers, resets and suspected resets are unknown |
 | `heartbeat_timeout_ns` | `None` | heartbeat state is `unknown` |
 | `reports_decode_errors` | `True` | decode errors are unknown |
 | `reports_overflow` | `False` | dashboard drops are unknown |
@@ -123,7 +123,7 @@ arithmetic (RFC 1982) against the newest number of the current run:
 | `-1` to `-reorder_window`, number is older than the run | out of order | out of order + 1 |
 | `-1` to `-reorder_window`, number already received | duplicate | duplicates + 1 |
 | further back than `reorder_window`, or exactly half the range | reset | resets + 1, a new run starts |
-| back to an already received `n`, then `n + 1` also already received | reset at `n` | duplicate for `n` taken back, resets + 1, a new run starts at `n` |
+| back to an already received `n`, then `n + 1` also already received | suspected reset | duplicates + 1 for each, suspected resets + 1, the run continues |
 
 - **Rollover**: a forward step that wraps past the top of the range (for
   example 255 -> 0 for 8 bits) is a rollover, counted in `rollovers`, and is
@@ -140,19 +140,37 @@ arithmetic (RFC 1982) against the newest number of the current run:
 - **Reorder window**: defaults to `min(32, 2**bits / 4)` and must be smaller
   than half the range. Only numbers within the window can be taken back as
   late arrivals; older lost numbers stay lost.
-- **Restart within the window**: a device that restarts without a disconnect
-  event shortly after start (or just after a rollover) steps back by less
-  than the reorder window, to numbers already received. The first replayed
-  number is provisionally a duplicate. When the very next packet is its
-  successor and is also an already received number behind the newest, the
-  pair is a restarted counter: the duplicate is taken back and a reset starts
-  a new run at the first replayed number. A lone repeat, a repeated pair
-  `(n, n)`, a repeat of the newest number, and late packets that fill counted
-  losses (for example `1, 4, 2, 3`) keep their classification.
-- **Known ambiguity**: a restart that sends only one number before jumping
-  ahead again still reads as a duplicate. A forward jump of less than half the range is always counted
-  as loss, even if it was really a restart. Sources that can say they
-  restarted should report a disconnect/connect pair.
+- **Suspected reset (replay within the window)**: a device that restarts
+  without a disconnect event shortly after start (or just after a rollover)
+  steps back by less than the reorder window, to numbers already received.
+  A transport that delivers the same packets twice looks exactly the same,
+  so this is not treated as a confirmed reset. When a packet steps back to an
+  already received `n` and the very next packet is `n + 1`, also already
+  received and behind the newest, the pair is a suspected reset: both
+  packets count as duplicates, `suspected_resets` grows by one, and the
+  current run is kept. Further packets that keep stepping forward through
+  received numbers are part of the same replay and do not add another
+  suspected reset. Because the run is kept, numbers received before the
+  replay are never counted as lost afterwards. For example `10, 11, 12, 10,
+  11, 13` is 2 duplicates, 1 suspected reset, 0 resets and 0 lost, and
+  `10, 11, 12, 10, 11, 15` loses only 13 and 14. A lone repeat, a repeated
+  pair `(n, n)`, a repeat of the newest number, and late packets that fill
+  counted losses (for example `1, 4, 2, 3`) keep their classification.
+  The `Sequence` row lists suspected resets next to resets when there are
+  any.
+- **Confirmed resets**: `resets` counts only steps that cannot be duplicated
+  delivery: a step back further than the reorder window (or exactly half the
+  range), and a step back after a reconnect. Loss is counted only against
+  numbers that were never received, so a suspected reset never adds loss.
+- **Known ambiguity**: a device that really restarted within the window is
+  reported as a suspected reset with its replayed packets as duplicates, and
+  a packet it then fails to send is not counted as lost (for example a
+  restart that sends `10, 11, 13` after `12` was received before the
+  restart). A restart that sends only one number before jumping ahead again
+  reads as a duplicate. A forward jump of less than half the range is always
+  counted as loss, even if it was really a restart. Sources that can say they
+  restarted should report a disconnect/connect pair, which makes the reset
+  confirmed.
 - `loss_fraction = lost / (lost + packets - duplicates)`.
 
 Packets may omit the sequence number even when `sequence_bits` is declared;
