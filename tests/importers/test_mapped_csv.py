@@ -119,6 +119,46 @@ def test_times_are_exact_nanoseconds() -> None:
             parse_time(bad, "s")
 
 
+INT64_MAX = (1 << 63) - 1
+
+
+@pytest.mark.parametrize(
+    ("text", "unit", "expected"),
+    [
+        ("9223372036854775807", "ns", INT64_MAX),
+        ("-9223372036854775808", "ns", -INT64_MAX - 1),
+        ("9223372036.854775807", "s", INT64_MAX),
+        ("9223372036854775.807", "us", INT64_MAX),
+        ("9223372036854", "ms", 9_223_372_036_854 * MS),
+    ],
+)
+def test_times_at_the_int64_limits_are_kept(text: str, unit: str, expected: int) -> None:
+    assert parse_time(text, unit) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "unit"),
+    [
+        ("9223372036854775808", "ns"),
+        ("-9223372036854775809", "ns"),
+        ("9223372037", "s"),
+        ("-9223372037", "s"),
+        ("9223372036855", "ms"),
+        ("9223372036854776", "us"),
+        ("9223372036854775807.6", "ns"),
+        ("9.3e18", "ns"),
+        ("1e100", "s"),
+        ("1e999999", "s"),
+        ("-1e999999", "ms"),
+        ("9999-12-31T23:59:59Z", ISO8601),
+        ("1600-01-01T00:00:00Z", ISO8601),
+    ],
+)
+def test_times_beyond_int64_are_rejected(text: str, unit: str) -> None:
+    with pytest.raises(ValueError, match="outside the supported time range"):
+        parse_time(text, unit)
+
+
 def test_iso_times_keep_fractions_and_zones() -> None:
     assert parse_iso8601("1970-01-01T00:00:01Z") == (1_000_000_000, True)
     assert parse_iso8601("1970-01-01 00:00:00.123456789") == (123_456_789, False)
@@ -292,6 +332,56 @@ def test_iso_times_without_zone_are_noted(tmp_path: Path) -> None:
     assert session.rows_skipped == 1
     assert session.problems[0].message.startswith("skipped: 'bad' is not an ISO 8601")
     assert session.notes == ("Some 'when' values have no time zone; they are read as UTC.",)
+
+
+def test_time_beyond_int64_skips_only_that_row(tmp_path: Path) -> None:
+    path = write(tmp_path, "t,v\n0,1\n9223372036854775808,2\n10,3\n")
+    session = mapped(path, time_column=0, time_unit="ns")
+    v = session.signal("v")
+    assert list(v.times_ns) == [0, 10]
+    assert list(v.values) == [1.0, 3.0]
+    assert session.rows_read == 3 and session.rows_skipped == 1
+    assert session.time_range_ns == (0, 10)
+    assert session.out_of_order_rows == 0 and session.duplicate_times == 0
+    assert [(p.line, p.column) for p in session.problems] == [(3, "t")]
+    assert session.problems[0].message == (
+        "skipped: '9223372036854775808' is outside the supported time range"
+    )
+
+
+@pytest.mark.parametrize(
+    ("unit", "huge"),
+    [("s", "1e999999"), ("ms", "9223372036855"), ("us", "-9223372036854776")],
+)
+def test_scaled_time_beyond_int64_skips_only_that_row(tmp_path: Path, unit: str, huge: str) -> None:
+    path = write(tmp_path, f"t,v,flag\n0,1,yes\n{huge},2,no\n1,3,no\n")
+    session = mapped(
+        path,
+        time_column=0,
+        time_unit=unit,
+        signals=(ColumnMapping(1, "v"), ColumnMapping(2, "flag", kind=SignalKind.BOOLEAN)),
+    )
+    step = parse_time("1", unit)
+    for name in ("v", "flag"):
+        assert list(session.signal(name).times_ns) == [0, step]
+    assert list(session.signal("v").values) == [1.0, 3.0]
+    assert list(session.signal("flag").values) == [1, 0]
+    assert session.rows_skipped == 1 and session.time_range_ns == (0, step)
+    assert [p.line for p in session.problems] == [3]
+
+
+def test_iso_time_beyond_int64_skips_only_that_row(tmp_path: Path) -> None:
+    path = write(
+        tmp_path,
+        "when,v\n2026-03-01T12:00:00,1\n2300-01-01T00:00:00,2\n2026-03-01T12:00:01Z,3\n",
+    )
+    session = mapped(path, time_column=0, time_unit=ISO8601, signals=(ColumnMapping(1, "v"),))
+    v = session.signal("v")
+    assert list(v.values) == [1.0, 3.0]
+    assert v.times_ns[1] - v.times_ns[0] == 1000 * MS
+    assert session.rows_skipped == 1
+    assert session.problems[0].line == 3
+    assert "outside the supported time range" in session.problems[0].message
 
 
 def test_preview_reads_only_the_first_rows() -> None:

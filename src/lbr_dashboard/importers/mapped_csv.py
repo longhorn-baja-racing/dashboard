@@ -79,6 +79,9 @@ _ISO = re.compile(
     re.IGNORECASE,
 )
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+#: Times are stored as signed 64-bit nanoseconds (about 1677 to 2262 for ISO dates).
+INT64_MIN = -(1 << 63)
+INT64_MAX = (1 << 63) - 1
 
 
 class CsvMappingError(ValueError):
@@ -158,21 +161,34 @@ def parse_iso8601(text: str) -> tuple[int, bool]:
     return seconds * 1_000_000_000 + int(fraction or 0), tz_text is not None
 
 
+def check_time_range(time_ns: int | Decimal, text: str) -> int:
+    """``time_ns`` as an int, or ValueError if it does not fit signed 64-bit storage."""
+
+    if not INT64_MIN <= time_ns <= INT64_MAX:
+        raise ValueError(f"{text!r} is outside the supported time range")
+    return int(time_ns)
+
+
 def parse_time(text: str, unit: str) -> int:
-    """Exact integer nanoseconds for a time cell."""
+    """Exact integer nanoseconds for a time cell, within the signed 64-bit range."""
 
     if unit == ISO8601:
-        return parse_iso8601(text)[0]
+        return check_time_range(parse_iso8601(text)[0], text)
     stripped = text.strip()
     if stripped.lstrip("-").isdigit():
-        return int(stripped) * TIME_UNITS[unit]
+        return check_time_range(int(stripped) * TIME_UNITS[unit], text)
     try:
         value = Decimal(stripped)
     except InvalidOperation:
         raise ValueError(f"{text!r} is not a number") from None
     if not value.is_finite():
         raise ValueError(f"{text!r} is not a finite number")
-    return int((value * TIME_UNITS[unit]).to_integral_value())
+    try:
+        scaled = (value * TIME_UNITS[unit]).to_integral_value()
+    except ArithmeticError:  # decimal.Overflow for exponents like 1e999999
+        raise ValueError(f"{text!r} is outside the supported time range") from None
+    # Compare before int() so a huge exponent never becomes a huge integer.
+    return check_time_range(scaled, text)
 
 
 #: A column is suggested as numeric when at least this share of its cells are.
@@ -485,6 +501,7 @@ class MappedCsvImporter:
             try:
                 if mapping.time_unit == ISO8601:
                     time_ns, zoned = parse_iso8601(time_text)
+                    time_ns = check_time_range(time_ns, time_text)
                     zoneless = zoneless or not zoned
                 else:
                     time_ns = parse_time(time_text, mapping.time_unit)

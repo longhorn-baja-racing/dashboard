@@ -75,7 +75,9 @@ and the first 200 rows and returns a `Suggestion` with a mapping and a list of
   the missing cells.
 - **Invalid cells** (`oops` in a number column, `maybe` in a boolean column,
   `inf`) are kept as missing, counted in `MappedSignal.invalid` and reported.
-- **Rows without a valid time** are skipped and reported.
+- **Rows without a valid time** are skipped and reported. That includes times
+  outside the signed 64-bit nanosecond range (about 292 years either side of
+  the epoch, so ISO dates from 1677 to 2262).
 - **Rows with too few or too many cells** are reported. Missing trailing cells
   are missing values. Extra cells are not imported.
 - **Out-of-order rows** are counted and each signal is sorted by time (stable,
