@@ -46,6 +46,9 @@ MAX_REPORTED_MALFORMED = 20
 #: numerous; keep the first ones for display and count the rest.
 MAX_EVENTS_PER_KIND = 5000
 MAX_EVENT_TEXT = 500
+#: Times and sequence numbers are stored as signed 64-bit integers.
+INT64_MIN = -(1 << 63)
+INT64_MAX = (1 << 63) - 1
 PROGRESS_EVERY_BYTES = 1 << 18
 READ_CHUNK = 1 << 16
 
@@ -84,12 +87,26 @@ def is_lbr_csv(path: Path) -> bool:
 
 
 def parse_time_us(text: str) -> int:
-    """Exact integer microseconds from ``seconds.micros`` (6 decimals)."""
+    """Exact integer microseconds from ``seconds.micros`` (6 decimals).
+
+    Times that do not fit the signed 64-bit storage are rejected here, before
+    any row state changes, so one bad row cannot abort the whole import.
+    """
 
     whole, dot, micros = text.partition(".")
     if dot and len(micros) == 6 and text.isascii() and whole.isdigit() and micros.isdigit():
-        return int(whole) * 1_000_000 + int(micros)
+        t_us = int(whole) * 1_000_000 + int(micros)
+        if t_us > INT64_MAX:
+            raise ValueError(f"time '{text[:40]}' is out of range")
+        return t_us
     raise ValueError(f"time '{text[:40]}' is not seconds with 6 decimals")
+
+
+def _parse_int64(text: str, what: str) -> int:
+    number = int(text)
+    if not INT64_MIN <= number <= INT64_MAX:
+        raise ValueError(f"{what} '{text[:40]}' is out of range")
+    return number
 
 
 @dataclass
@@ -244,7 +261,7 @@ class _Reader:
     ) -> None:
         missing = value == ""
         parsed = _NAN if missing else float(value)
-        sequence = int(seq) if seq else -1
+        sequence = _parse_int64(seq, "seq") if seq else -1
         node_clock = synced == "0" and kind == "sample"
         cached = self._lookup.get((kind, node, name, node_clock))
         if cached is None:

@@ -230,6 +230,54 @@ def test_malformed_rows_are_skipped_and_reported(tmp_path: Path) -> None:
     assert any("Skipped 7 malformed row(s); first at line 4" in w for w in session.warnings)
 
 
+def test_time_beyond_int64_storage_is_one_malformed_row(tmp_path: Path) -> None:
+    path = minimal(
+        tmp_path,
+        "1.000000,sample,imu,ACCEL,1.5,m/s^2,ok,1,0",
+        "9223372036854.775808,sample,imu,ACCEL,2,m/s^2,ok,1,1",
+        "9223372036854.775808,sample,imu,GYRO,2,deg/s,ok,1,1",
+        "99999999999999999999.000000,event,central,BOOT,,,,1,",
+        "2.000000,sample,imu,ACCEL,4.25,m/s^2,ok,1,2",
+    )
+    session = read(path)
+    accel = session.channel("imu.accel")
+    assert accel is not None
+    assert accel.times_us.tolist() == [1_000_000, 2_000_000]
+    assert accel.values.tolist() == [1.5, 4.25]
+    assert accel.seq.tolist() == [0, 2]
+    assert session.channel("imu.gyro") is None
+    assert not [e for e in session.events if e.name == "BOOT"]
+    assert session.malformed_count == 3
+    assert [m.line for m in session.malformed] == [4, 5, 6]
+    assert all("out of range" in m.reason for m in session.malformed)
+
+
+def test_largest_int64_time_is_kept(tmp_path: Path) -> None:
+    path = minimal(tmp_path, "9223372036854.775807,sample,imu,ACCEL,1,,ok,1,0")
+    accel = read(path).channel("imu.accel")
+    assert accel is not None and accel.times_us.tolist() == [(1 << 63) - 1]
+
+
+def test_seq_beyond_int64_storage_is_one_malformed_row(tmp_path: Path) -> None:
+    path = minimal(
+        tmp_path,
+        "1.000000,sample,imu,ACCEL,1.5,m/s^2,ok,1,0",
+        "1.500000,sample,imu,ACCEL,2,m/s^2,ok,1,9223372036854775808",
+        "1.600000,sample,imu,ACCEL,2,m/s^2,ok,1,-9223372036854775809",
+        "1.700000,sample,imu,ACCEL,3,m/s^2,ok,1,-9223372036854775808",
+        "2.000000,sample,imu,ACCEL,4.25,m/s^2,ok,1,9223372036854775807",
+    )
+    session = read(path)
+    accel = session.channel("imu.accel")
+    assert accel is not None
+    assert accel.times_us.tolist() == [1_000_000, 1_700_000, 2_000_000]
+    assert accel.values.tolist() == [1.5, 3.0, 4.25]
+    assert accel.seq.tolist() == [0, -(1 << 63), (1 << 63) - 1]
+    assert accel.available.size == accel.status.size == 3
+    assert session.malformed_count == 2
+    assert all("seq" in m.reason and "out of range" in m.reason for m in session.malformed)
+
+
 def test_csv_level_errors_are_counted(tmp_path: Path) -> None:
     huge = "x" * (csv.field_size_limit() + 10)
     path = minimal(tmp_path, f"1.000000,text,central,text,{huge},,,,")
@@ -402,7 +450,8 @@ def test_progress_reports_bytes_and_can_cancel(
 def test_time_parsing_is_exact() -> None:
     assert parse_time_us("20015998.343868") == 20_015_998_343_868
     assert parse_time_us("0.000001") == 1
-    for bad in ("1.5", "-1.000000", "1.0000000", "abc", ""):
+    assert parse_time_us("9223372036854.775807") == (1 << 63) - 1
+    for bad in ("1.5", "-1.000000", "1.0000000", "abc", "", "9223372036854.775808"):
         with pytest.raises(ValueError):
             parse_time_us(bad)
 
