@@ -18,6 +18,58 @@ import lbr_dashboard
 from lbr_dashboard.app import create_application, create_main_window, main
 from lbr_dashboard.resources import resource_text
 from lbr_dashboard.version import __version__
+from lbr_dashboard.core import (SignalDescriptor, SignalSample, SignalSchema, SignalSeries,
+                                IteratorSource, SourceEvent, SourceEventKind, TelemetrySession,
+                                SessionClock, PlaybackMode, SimulatorSource, example_signals,
+                                Preferences, PreferencesStore, RecentSource)
+
+descriptor = SignalDescriptor("custom.pressure", "Pressure", ("lab",), "numeric", "adapter",
+                              timestamp_domain="device_monotonic")
+schema = SignalSchema(1, (descriptor,))
+assert SignalSchema.from_json(schema.to_json()).to_dict() == schema.to_dict()
+series = SignalSeries.from_samples(descriptor.identifier,
+    (SignalSample(10, 1, timestamp_domain="device_monotonic"),), descriptor=descriptor)
+assert SignalSeries.from_dict(series.to_dict(), descriptor=descriptor) == series
+source = IteratorSource("adapter", schema, lambda token: iter((SourceEvent(
+    SourceEventKind.RECORD, "adapter", signal_id=descriptor.identifier,
+    sample=series.samples[0]),)))
+source.open()
+source.start()
+assert source.join(5)
+assert [event.kind for event in source.events.drain()] == [SourceEventKind.DESCRIPTOR,
+    SourceEventKind.RECORD, SourceEventKind.END_OF_STREAM]
+assert source.health().terminal_reason == "complete" and source.close()
+session = TelemetrySession(schema, max_samples_per_signal=10)
+session.extend(descriptor.identifier, series.samples)
+view = session.snapshot()
+assert view.bounds(descriptor.identifier) == (10, 10)
+assert view.range(descriptor.identifier, 10, 10)[0].sample == series.samples[0]
+assert view.nearest(descriptor.identifier, 1000, max_distance_ns=10) is None
+clock = SessionClock()
+clock.update_from_session(view, descriptor.identifier)
+first, second = [], []
+off_a, off_b = clock.subscribe(first.append), clock.subscribe(second.append)
+clock.follow_live()
+assert first[-1] is second[-1] is clock.snapshot()
+assert clock.snapshot().selected_ns == 10
+assert clock.pause().mode is PlaybackMode.PAUSED
+off_a()
+off_b()
+simulator = SimulatorSource(example_signals("motion"), seed=7, duration_ns=0)
+simulator.open()
+simulator.start()
+assert simulator.join(5)
+sim_records = [event for event in simulator.events.drain()
+               if event.kind is SourceEventKind.RECORD]
+assert len(sim_records) == 4
+assert simulator.health().terminal_reason == "complete" and simulator.close()
+from tempfile import TemporaryDirectory
+with TemporaryDirectory() as settings_directory:
+    settings_path = Path(settings_directory) / "preferences.json"
+    saved = Preferences("dark", (RecentSource("csv", "C:/example.csv"),))
+    PreferencesStore(settings_path).save(saved)
+    assert PreferencesStore(settings_path).reload().preferences == saved
+
 
 assert Path(lbr_dashboard.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
 metadata = distribution("lbr-dashboard")
@@ -106,7 +158,7 @@ def main() -> None:
                 "-I",
                 "-c",
                 SMOKE,
-                str(ROOT / "sample_data" / "legacy" / "sample_baja_log.csv"),
+                str(ROOT / "sample_data" / "sample_baja_log.csv"),
                 cwd=directory,
             )
             run("uv", "pip", "check", "--python", str(python))

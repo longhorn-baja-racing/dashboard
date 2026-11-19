@@ -45,6 +45,10 @@ the application. The Open CSV action handles these files as follows.
 | `error_bad_encoding.csv` | invalid UTF-8 bytes | a decoding error with the filename and a UTF-8 recovery suggestion; the previous session stays available |
 | `blank_timestamp_cell.csv` | blank `timestamp_ms` in row 2 | a warning; the original row stays in the table and is omitted from time plots |
 
-## Legacy (`legacy/`)
+## Legacy sample (`sample_baja_log.csv`)
 
-See `legacy/README.md`.
+`sample_baja_log.csv` is the original demo log from the first version of the
+dashboard. It is kept as a sample for the demo, the portable build self-test and
+existing UI tests. Its column names describe one early test vehicle and are not
+requirements for any sensor, firmware or hardware. New tests should use the
+neutral fixtures in `fixtures/` instead.

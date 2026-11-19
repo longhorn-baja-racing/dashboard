@@ -10,7 +10,7 @@ from lbr_dashboard.importers.csv_importer import CsvImporter
 
 FIXTURES = Path(__file__).resolve().parents[2] / "sample_data" / "fixtures"
 MALFORMED = FIXTURES / "malformed"
-LEGACY = FIXTURES.parent / "legacy" / "sample_baja_log.csv"
+LEGACY = FIXTURES.parent / "sample_baja_log.csv"
 
 # The column the app treats as time. Sharing this one name with the legacy sample is
 # intentional; every other column in the fixtures must be unrelated to it.

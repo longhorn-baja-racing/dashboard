@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QPalette
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -15,18 +15,26 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QProgressDialog,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from ..core.lbr_session import LbrSession
 from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
+from .docks import WorkspaceDocks
+from .lbr_session_view import LbrSessionView
 from .left_panel import LeftPanel
+from .replay_bar import ReplayBar
 from .right_panel import RightPanel
+from .source_picker import SourcePicker
 from .top_menu_bar import TopMenuBar
 
 
@@ -38,32 +46,53 @@ class CsvLoader(Protocol):
     def close(self) -> bool: ...
 
 
+class ImportProgress:
+    """A cancellable progress dialog that importers report into."""
+
+    def __init__(self, parent: QMainWindow, file_name: str) -> None:
+        self._dialog = QProgressDialog(f"Reading {file_name}...", "Cancel", 0, 1000, parent)
+        self._dialog.setWindowTitle("Opening session")
+        self._dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._dialog.setMinimumDuration(400)
+
+    def report(self, done: int, total: int) -> bool:
+        """Show progress and return False once the user has cancelled."""
+
+        self._dialog.setValue(min(999, done * 1000 // max(total, 1)))
+        QApplication.processEvents()
+        return not self._dialog.wasCanceled()
+
+    def close(self) -> None:
+        self._dialog.close()
+
+
+class SourceOwner(Protocol):
+    def close(self) -> bool: ...
+    def release_for_legacy(self) -> None: ...
+    def has_session(self) -> bool: ...
+
+
 class MainWindow(QMainWindow):
     """Main application window that coordinates imported data and presentation."""
 
     csv_requested = Signal(str)
+    csv_loaded = Signal(str)
+    theme_requested = Signal(str)
+    clear_recent_requested = Signal()
     csv_load_failed = Signal(str, str)
     column_selected = Signal(int)
     import_failed = Signal(str, str)
+    cell_edited = Signal(int, int, str)
 
     def __init__(self) -> None:
         super().__init__()
-        palette = self.palette()
-        for role in (QPalette.ColorRole.Window, QPalette.ColorRole.Button):
-            palette.setColor(role, QColor("#303030"))
-        palette.setColor(QPalette.ColorRole.Base, QColor("#202020"))
-        for role in (
-            QPalette.ColorRole.WindowText,
-            QPalette.ColorRole.Text,
-            QPalette.ColorRole.ButtonText,
-        ):
-            palette.setColor(role, QColor("#eeeeee"))
-        self.setPalette(palette)
         self.setStyleSheet(
             "QFrame#importCard { border: 1px solid #555; border-radius: 6px; }"
             "QPushButton { padding: 6px 12px; }"
         )
         self._controller: CsvLoader | None = None
+        self.preferences_controller: object | None = None
+        self.source_owner: SourceOwner | None = None
         self.setWindowTitle("LBR Dashboard")
         self.resize(1200, 700)
 
@@ -125,9 +154,28 @@ class MainWindow(QMainWindow):
         self.error_details.setReadOnly(True)
         self.error_details.setMaximumHeight(110)
         controls.addWidget(self.error_details)
-        layout.addWidget(card)
-        layout.addWidget(splitter, 1)
+        # Firmware lbr-csv exports get their own view; other CSVs keep the table view.
+        self.lbr_view = LbrSessionView()
+        self.pages = QStackedWidget()
+        # The CSV start card belongs to the table page, so it does not take
+        # height from the firmware session view.
+        table_page = QWidget()
+        table_layout = QVBoxLayout(table_page)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.addWidget(card)
+        table_layout.addWidget(splitter, 1)
+        self.pages.addWidget(table_page)
+        self.pages.addWidget(self.lbr_view)
+        self.import_error: QMessageBox | None = None
+        self.source_picker = SourcePicker()
+        self.replay_bar = ReplayBar()
+        layout.addWidget(self.source_picker)
+        layout.addWidget(self.replay_bar)
+        layout.addWidget(self.pages, 1)
         self.setCentralWidget(root)
+        self.workspace_docks = WorkspaceDocks(
+            self, lambda: self.left_panel.signal_browser.selected_id
+        )
         self.open_button.clicked.connect(self.open_csv)
         self.demo_button.clicked.connect(self.try_demo)
         self.cancel_button.clicked.connect(self.cancel_import)
@@ -142,11 +190,21 @@ class MainWindow(QMainWindow):
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
         self.right_panel.plot_widget.setTitle("No data loaded - open CSV or try demo data")
         self.right_panel.table.setEditTriggers(self.right_panel.table.EditTrigger.NoEditTriggers)
+        self.right_panel.table.itemChanged.connect(
+            lambda item: self.cell_edited.emit(item.row(), item.column(), item.text())
+        )
 
     def attach_controller(self, controller: CsvLoader) -> None:
         self._controller = controller
 
+    def set_preference_choices(self, theme: str, recent_paths: tuple[str, ...]) -> None:
+        menu = self.menuBar()
+        if isinstance(menu, TopMenuBar):
+            menu.set_preference_choices(theme, recent_paths)
+
     def _select_column(self, column_index: int) -> None:
+        if self.source_owner is not None and self.source_owner.has_session():
+            return
         item = self.left_panel.list_widget.item(column_index)
         physical_index = item.data(Qt.ItemDataRole.UserRole) if item is not None else -1
         self.right_panel.highlight_column(physical_index)
@@ -177,7 +235,11 @@ class MainWindow(QMainWindow):
         prefer_measurement: bool = False,
     ) -> None:
         """Present controller-selected columns without retaining the model."""
+        if self.source_owner is not None:
+            self.source_owner.release_for_legacy()
         self.statusBar().clearMessage()
+        self.pages.setCurrentIndex(0)
+        self.right_panel.table.setEditTriggers(self.right_panel.legacy_edit_triggers)
         self.right_panel.set_table(headers, rows)
         choices = self.left_panel.list_widget
         with QSignalBlocker(choices):
@@ -259,4 +321,35 @@ class MainWindow(QMainWindow):
             )
             event.ignore()
             return
+        if self.source_owner is not None and not self.source_owner.close():
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    def show_source_name(self, file_name: str) -> None:
+        """Name the file whose data is currently shown."""
+
+        self.setWindowTitle(f"LBR Dashboard - {file_name}")
+
+    def import_progress(self, file_name: str) -> ImportProgress:
+        """Progress for a long import; the caller closes it when done."""
+
+        return ImportProgress(self, file_name)
+
+    def display_lbr_session(self, session: LbrSession) -> None:
+        """Show an imported firmware session in the session view."""
+
+        if self.source_owner is not None:
+            self.source_owner.release_for_legacy()
+        self.statusBar().clearMessage()
+        self.lbr_view.set_session(session)
+        self.pages.setCurrentWidget(self.lbr_view)
+
+    def show_lbr_import_error(self, message: str) -> None:
+        """Explain a failed import without blocking; the current view is unchanged."""
+
+        box = QMessageBox(QMessageBox.Icon.Warning, "Could not open file", message, parent=self)
+        box.setInformativeText("The previously opened data is still shown.")
+        box.setModal(False)
+        box.show()
+        self.import_error = box

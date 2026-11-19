@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from math import isfinite
@@ -17,6 +18,8 @@ from .core.log import LogImporter, LogSession
 
 if TYPE_CHECKING:
     from .ui.main_window import MainWindow
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,7 @@ class ImportController(QObject):
             except InterruptedError:
                 self.result.put((None, "cancelled"))
             except Exception as error:
+                logger.warning("Could not load %s", path, exc_info=True)
                 failure = classify(error)
                 self.result.put(
                     (
@@ -213,8 +217,11 @@ class ImportController(QObject):
             self.window.show_load_error(str(self.path), detail.reason)
             self.window.show_import_error(detail.reason, detail.recovery, detail.details)
         elif session is not None:
-            assert self.path is not None
+            if self.path is None:
+                return
             self.present(session)
+            self.window.show_source_name(self.path.name)
+            self.window.csv_loaded.emit(str(self.path))
             self.window.set_import_state(
                 "ready",
                 f"CSV loaded: {self.path.name}. Select a numeric column to plot."

@@ -1,0 +1,47 @@
+name: Portable build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  portable:
+    name: Portable ZIP (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONFAULTHANDLER: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.23"
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked --extra package
+      - name: Build the portable ZIP
+        run: uv run --locked python scripts/build_portable.py
+      - name: Run the ZIP from a non-ASCII path without Python
+        run: uv run --locked python scripts/smoke_portable.py dist/portable
+      - name: Upload the portable ZIP
+        if: ${{ !cancelled() && hashFiles('dist/portable/*.zip') != '' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: portable-windows-x64
+          path: |
+            dist/portable/*.zip
+            dist/portable/*.sha256
+          retention-days: 14
+          compression-level: 0
