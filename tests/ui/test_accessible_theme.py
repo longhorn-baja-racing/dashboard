@@ -108,3 +108,27 @@ def test_theme_switch_updates_live_widgets_and_late_docks(qtbot, tmp_path):
         qtbot.waitUntil(lambda: owner.source is None and owner._preparing is None)
         window.close()
         window.deleteLater()
+
+
+def test_dark_theme_reaches_child_panels_and_focused_fields(qtbot, tmp_path):
+    window = create_main_window(preferences_store=PreferencesStore(tmp_path / "prefs.json"))
+    controller = window.preferences_controller
+    assert isinstance(controller, PreferencesController)
+    window.show()
+    try:
+        controller.set_theme("dark")
+        window_color = QColor("#303030")
+        for panel in (window.left_panel, window.right_panel):
+            assert panel.palette().color(QPalette.ColorRole.Window) == window_color
+        sheet = window.styleSheet()
+        assert (
+            "QComboBox:focus, QLineEdit:focus { background-color: #202020; color: #eeeeee; }"
+            in sheet
+        )
+        assert contrast(QColor("#eeeeee"), QColor("#202020")) >= 4.5
+        dock = window.workspace_docks.add("plot")
+        assert dock.plot is not None
+        plot_item = dock.plot.getPlotItem()
+        assert plot_item is not None and not plot_item.titleLabel.isVisible()
+    finally:
+        window.close()

@@ -230,7 +230,7 @@ def test_cursor_gesture_uses_the_shared_clock_and_exposes_missing_readings(
     for moved, position, time, message in (
         (cursor, 0.03, 30_000_000, "Selected: 7.0 at 30000000 ns"),
         (second_cursor, 0.01, 10_000_000, "Selected: no available reading"),
-        (cursor, 0.025, 25_000_000, "Selected: no available reading"),
+        (cursor, 0.025, 25_000_000, "Selected: 7.0 at 30000000 ns"),
         (second_cursor, 0.0, 0, "Selected: 0.0 at 0 ns"),
     ):
         previous = replay.clock.snapshot()
@@ -372,3 +372,16 @@ def test_cursor_uses_resolved_domain_and_is_hidden_for_structured_signals(transp
     assert replay.cursor.isVisible()  # Actual samples establish the relative domain.
     owner.select_signal("process.status")
     assert replay.cursor is None or not replay.cursor.isVisible()
+
+
+def test_reading_without_declared_rate_uses_recorded_cadence_and_keeps_gaps():
+    csv = SignalDescriptor("csv.pressure", "Pressure", ("csv",), "numeric", "file")
+    session = TelemetrySession(SignalSchema(1, (csv,)))
+    times = [index * 10_000_000 for index in range(3000)] + [60_000_000_000]
+    session.extend(csv.identifier, tuple(SignalSample(t, 1.5) for t in times))
+    snapshot = session.snapshot()
+    # Between samples on a 10 ms log: the nearest reading within half a period.
+    assert selected_reading(snapshot, csv, 9_995_667_000) == "Selected: 1.5 at 10000000000 ns"
+    assert selected_reading(snapshot, csv, 12_342_000_000) == "Selected: 1.5 at 12340000000 ns"
+    # Deep inside the 30 s gap before the last sample there is no reading.
+    assert selected_reading(snapshot, csv, 45_000_000_000) == "Selected: no available reading"

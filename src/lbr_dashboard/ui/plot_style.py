@@ -10,7 +10,8 @@ def apply_plot_colors(widget: pg.PlotWidget, background: str, text: str) -> None
     widget.setBackground(background)
     plot = widget.getPlotItem()
     if plot is not None:
-        plot.setTitle(plot.titleLabel.text, color=text)
+        if plot.titleLabel.isVisible():
+            plot.setTitle(plot.titleLabel.text, color=text)
         for name in ("bottom", "left"):
             axis = plot.getAxis(name)
             axis.setPen(pg.mkPen(text))

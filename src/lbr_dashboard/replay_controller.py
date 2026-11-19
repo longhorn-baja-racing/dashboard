@@ -34,11 +34,26 @@ from .ui.plot_style import CURSOR_COLOR
 from .ui.replay_bar import SLIDER_STEPS
 
 
-def selected_reading(view: SessionSnapshot, descriptor: SignalDescriptor, selected_ns: int) -> str:
+def reading_tolerance_ns(view: SessionSnapshot, descriptor: SignalDescriptor) -> int:
+    """Half a sample period: the declared cadence, or else the recorded one.
+
+    Without a declared rate (CSV columns, for example) the mean spacing of the
+    recorded samples stands in for it, so a reading shows between samples but
+    not in the middle of a gap several periods long.
+    """
     rate = descriptor.nominal_rate_hz
-    # Without a declared cadence, require an exact measured timestamp.
-    tolerance = min(500_000_000 / rate, 2**63 - 1) if rate else 0
-    sample = view.nearest(descriptor.identifier, selected_ns, max_distance_ns=int(tolerance))
+    if rate:
+        return int(min(500_000_000 / rate, 2**63 - 1))
+    records = view.series.get(descriptor.identifier, ())
+    bounds = view.bounds(descriptor.identifier) if records else None
+    if bounds is None or len(records) < 2:
+        return 0
+    return (bounds[1] - bounds[0]) // (2 * (len(records) - 1))
+
+
+def selected_reading(view: SessionSnapshot, descriptor: SignalDescriptor, selected_ns: int) -> str:
+    tolerance = reading_tolerance_ns(view, descriptor)
+    sample = view.nearest(descriptor.identifier, selected_ns, max_distance_ns=tolerance)
     if sample is None or not sample.sample.available:
         return "Selected: no available reading"
     reading = sample.sample

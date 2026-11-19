@@ -42,8 +42,6 @@ def apply_theme(window: MainWindow, theme: str) -> None:
     window.left_panel.list_widget.setStyleSheet("")
     window.right_panel.setStyleSheet("")
     window.right_panel.table.setStyleSheet("")
-    for widget in (window, *window.findChildren(QWidget)):
-        widget.setPalette(palette)
     background = palette.color(QPalette.ColorRole.Window).name()
     base = palette.color(QPalette.ColorRole.Base).name()
     text = palette.color(QPalette.ColorRole.WindowText).name()
@@ -62,9 +60,16 @@ def apply_theme(window: MainWindow, theme: str) -> None:
         f"{{ background-color: {accent}; color: {selected}; }}"
         "QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus "
         f"{{ border: 2px solid {accent}; }}"
+        # A border rule makes these draw from the style sheet, so give the
+        # focused state the themed field colors instead of the default white.
+        "QComboBox:focus, QLineEdit:focus "
+        f"{{ background-color: {base}; color: {text}; }}"
         "QPushButton:disabled, QToolButton:disabled, QComboBox:disabled "
         f"{{ color: {disabled}; }}"
     )
+    # Setting a style sheet resets child palettes, so apply palettes after it.
+    for widget in (window, *window.findChildren(QWidget)):
+        widget.setPalette(palette)
     window.left_panel.setAutoFillBackground(True)
     window.right_panel.setAutoFillBackground(True)
     window.left_panel.signal_browser.apply_palette(palette)

@@ -10,6 +10,7 @@ from math import isfinite
 from numbers import Integral
 from threading import get_ident
 from time import monotonic_ns
+from typing import SupportsIndex
 
 from .session import SessionSnapshot
 
@@ -49,13 +50,16 @@ def _integer(value: object, name: str) -> int:
     return int(value)
 
 
-def _bounds(start: int | None, end: int | None) -> None:
+def _bounds(start: object, end: object) -> tuple[int | None, int | None]:
+    """Validate bounds and return them as Python ints (NumPy ints would overflow)."""
     if start is None and end is None:
-        return
+        return None, None
     if start is None or end is None:
         raise ValueError("both bounds must be present or absent")
-    if _integer(start, "start_ns") > _integer(end, "end_ns"):
+    start_ns, end_ns = _integer(start, "start_ns"), _integer(end, "end_ns")
+    if start_ns > end_ns:
         raise ValueError("start_ns must not exceed end_ns")
+    return start_ns, end_ns
 
 
 def _rate(value: int | float | Fraction) -> Fraction:
@@ -83,18 +87,18 @@ class SessionClock:
     def __init__(
         self,
         *,
-        start_ns: int | None = None,
-        end_ns: int | None = None,
+        start_ns: SupportsIndex | None = None,
+        end_ns: SupportsIndex | None = None,
         now_ns: Callable[[], int] = monotonic_ns,
     ) -> None:
-        _bounds(start_ns, end_ns)
+        start, end = _bounds(start_ns, end_ns)
         if not callable(now_ns):
             raise TypeError("now_ns must be callable")
         self._now = now_ns
         self._last_now = _integer(now_ns(), "monotonic clock")
         self._owner = get_ident()
-        self._start, self._end = start_ns, end_ns
-        self._position = Fraction(start_ns) if start_ns is not None else None
+        self._start, self._end = start, end
+        self._position = Fraction(start) if start is not None else None
         self._speed = Fraction(1)
         self._mode = PlaybackMode.PAUSED
         self._connected = True
@@ -245,13 +249,15 @@ class SessionClock:
 
         return self._command(action)
 
-    def update_bounds(self, start_ns: int | None, end_ns: int | None) -> ClockSnapshot:
+    def update_bounds(
+        self, start_ns: SupportsIndex | None, end_ns: SupportsIndex | None
+    ) -> ClockSnapshot:
         self._check_owner()
         if self._reference is not None:
             raise ValueError("clock is bound to a session; use update_from_session")
-        _bounds(start_ns, end_ns)
+        start, end = _bounds(start_ns, end_ns)
 
-        return self._command(lambda: self._set_bounds(start_ns, end_ns))
+        return self._command(lambda: self._set_bounds(start, end))
 
     def _set_bounds(self, start_ns: int | None, end_ns: int | None) -> None:
         self._start, self._end = start_ns, end_ns

@@ -20,7 +20,7 @@ Axis = Literal["left", "right"]
 COLORS = ("#4fc3f7", "#ffb74d", "#ce93d8", "#81c784", "#ef9a9a", "#fff176", "#80cbc4", "#b0bec5")
 # Darker counterparts drawn on light plot backgrounds so every trace keeps at
 # least 3:1 contrast. Saved configurations keep the COLORS value.
-LIGHT_COLORS = dict(
+LIGHT_COLORS: dict[str, str] = dict(
     zip(
         COLORS,
         ("#0277bd", "#c25e00", "#8e24aa", "#2e7d32", "#c62828", "#7c6a00", "#00796b", "#546e7a"),

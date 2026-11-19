@@ -490,3 +490,26 @@ def test_reference_change_validation_and_clock_failure_leave_binding_unchanged()
     with pytest.raises(ValueError):
         shared.update_from_session(store.snapshot(), "custom.pressure")
     assert shared.snapshot() is before and shared.snapshot().reference is None
+
+
+def test_numpy_bounds_are_stored_as_python_ints_and_do_not_wrap():
+    now = [0]
+    clock = SessionClock(now_ns=lambda: now[0])
+    start = 1_763_000_000_000_000_000
+    clock.update_bounds(np.int64(start), np.int64(start + 60_000_000_000))
+    clock.set_speed(1.1)
+    clock.play()
+    now[0] += 1_000_001
+    clock.tick()
+    frame = clock.snapshot()
+    assert frame.selected_ns is not None and frame.selected_ns - start == 1_100_001
+    assert type(frame.start_ns) is int and type(frame.end_ns) is int
+    assert type(frame.selected_ns) is int
+
+    bound = SessionClock(
+        start_ns=np.int64(2**63 - 2), end_ns=np.int64(2**63 - 1), now_ns=lambda: now[0]
+    )
+    bound.play()
+    now[0] += 1
+    bound.tick()
+    assert bound.snapshot().selected_ns == 2**63 - 1
