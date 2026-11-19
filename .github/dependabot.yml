@@ -8,6 +8,10 @@ updates:
       dependencies:
         patterns: ["*"]
     open-pull-requests-limit: 5
+    ignore:
+      # 6.12.0 crashes at interpreter exit on Python 3.10 and 3.11 (#119).
+      - dependency-name: "pyside6"
+        versions: ["6.12.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
