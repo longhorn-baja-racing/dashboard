@@ -12,7 +12,8 @@ typecheck:
 test:
 	uv run --locked pytest --cov
 
-quality: format-check lint typecheck test build
+quality:
+	uv run --locked python scripts/check_quality.py
 
 format-check:
 	uv run --locked ruff format --check .
