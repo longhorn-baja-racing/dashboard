@@ -14,7 +14,7 @@ from lbr_dashboard.source_controller import SourceController, SourceOption
 from lbr_dashboard.ui.signal_browser import ID_ROLE
 
 SAMPLES = Path(__file__).resolve().parents[2] / "sample_data"
-DEMO = SAMPLES / "fixtures" / "timestamped_demo.csv"
+DEMO = SAMPLES / "timestamped_demo.csv"
 
 
 @pytest.fixture

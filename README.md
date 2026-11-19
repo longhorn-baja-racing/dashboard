@@ -67,7 +67,7 @@ uv run --locked lbr-dashboard
 
 1. In **Telemetry source**, choose **CSV replay - timestamp_ms preset**, click
    **Open CSV / Connect**, and open
-   [sample_data/fixtures/timestamped_demo.csv](sample_data/fixtures/timestamped_demo.csv).
+   [sample_data/timestamped_demo.csv](sample_data/timestamped_demo.csv).
 2. Search the signal browser for `chamber_temperature` and select the result.
    The trace starts at 21.5 and has a gap at 0.25 s. Select `flow_rate` to see
    a second numeric trace, including real zeros. Select `valve_state` to read
