@@ -38,17 +38,17 @@ def _time(record: SessionRecord) -> int:
 
 
 def _range(
-    records: Sequence[SessionRecord], start_ns: int, end_ns: int
+    records: Sequence[SessionRecord], start_ns: int, end_ns: int, *, neighbors: bool = False
 ) -> tuple[SessionRecord, ...]:
     start_ns = _integer(start_ns, "start_ns")
     end_ns = _integer(end_ns, "end_ns")
     if start_ns > end_ns:
         raise ValueError("start_ns must not exceed end_ns")
-    return tuple(
-        records[
-            bisect_left(records, start_ns, key=_time) : bisect_right(records, end_ns, key=_time)
-        ]
-    )
+    left = bisect_left(records, start_ns, key=_time)
+    right = bisect_right(records, end_ns, key=_time)
+    if neighbors:
+        left, right = max(0, left - 1), right + 1
+    return tuple(records[left:right])
 
 
 def _nearest(
@@ -97,9 +97,11 @@ class SessionSnapshot:
             object.__setattr__(self, field, MappingProxyType(dict(getattr(self, field))))
         object.__setattr__(self, "source_events", tuple(self.source_events))
 
-    def range(self, signal_id: str, start_ns: int, end_ns: int) -> tuple[SessionRecord, ...]:
-        """Original records inside inclusive bounds, ordered by time then arrival."""
-        return _range(self.series[signal_id], start_ns, end_ns)
+    def range(
+        self, signal_id: str, start_ns: int, end_ns: int, *, neighbors: bool = False
+    ) -> tuple[SessionRecord, ...]:
+        """Inclusive bounds, optionally with one record on each side for plot clipping."""
+        return _range(self.series[signal_id], start_ns, end_ns, neighbors=neighbors)
 
     def nearest(
         self,
@@ -328,9 +330,11 @@ class TelemetrySession:
                 dict(self._evicted),
             )
 
-    def range(self, signal_id: str, start_ns: int, end_ns: int) -> tuple[SessionRecord, ...]:
+    def range(
+        self, signal_id: str, start_ns: int, end_ns: int, *, neighbors: bool = False
+    ) -> tuple[SessionRecord, ...]:
         with self._lock:
-            return _range(self._series[signal_id], start_ns, end_ns)
+            return _range(self._series[signal_id], start_ns, end_ns, neighbors=neighbors)
 
     def nearest(
         self,
