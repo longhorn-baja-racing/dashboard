@@ -11,7 +11,9 @@ from PySide6.QtWidgets import QFileDialog, QMainWindow, QSplitter, QVBoxLayout, 
 
 from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
+from .docks import WorkspaceDocks
 from .left_panel import LeftPanel
+from .replay_bar import ReplayBar
 from .right_panel import RightPanel
 from .source_picker import SourcePicker
 from .top_menu_bar import TopMenuBar
@@ -65,11 +67,16 @@ class MainWindow(QMainWindow):
         self.left_panel.setMinimumWidth(MIN_PANEL_WIDTH)
         self.right_panel.setMinimumWidth(MIN_PANEL_WIDTH)
         self.source_picker = SourcePicker()
+        self.replay_bar = ReplayBar()
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.addWidget(self.source_picker)
+        layout.addWidget(self.replay_bar)
         layout.addWidget(splitter, 1)
         self.setCentralWidget(container)
+        self.workspace_docks = WorkspaceDocks(
+            self, lambda: self.left_panel.signal_browser.selected_id
+        )
 
         self.left_panel.list_widget.currentRowChanged.connect(self._select_column)
 
