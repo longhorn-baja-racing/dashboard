@@ -8,6 +8,7 @@ from math import isfinite
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QLabel,
     QPushButton,
     QSplitter,
     QTableWidget,
@@ -35,6 +36,8 @@ class RightPanel(QWidget):
         self.fit_plot = QPushButton("Fit plot")
         self.fit_plot.clicked.connect(self.time_plot.fit)
         self.fit_plot.hide()
+        self.selected_reading = QLabel("Selected: no aligned reading")
+        self.selected_reading.setTextFormat(Qt.TextFormat.PlainText)
 
         self.table = QTableWidget()
         self.table.setStyleSheet(
@@ -57,6 +60,7 @@ class RightPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.fit_plot, alignment=Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.selected_reading)
         layout.addWidget(splitter)
         self.setStyleSheet("background-color: #3a3a3a; color: #ffffff;")
 
