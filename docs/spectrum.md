@@ -105,6 +105,8 @@ interpolated, filled or dropped.
 | --------------------------------------- | ------------------------------------------- |
 | fewer than `MIN_SAMPLES` (8) samples    | too few bins to be meaningful               |
 | any `None`, NaN or +/-inf value         | a gap; zero-filling would invent data       |
+| non-integer or bool timestamp           | never rounded or truncated to whole ns      |
+| timestamp outside the int64 range       | not representable as int64 nanoseconds      |
 | duplicate or decreasing timestamp       | no defined sample order or spacing          |
 | spacing jitter above `max_jitter`       | nonuniform timing or a dropped sample       |
 

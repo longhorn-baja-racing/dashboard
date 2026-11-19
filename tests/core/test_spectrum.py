@@ -269,3 +269,69 @@ def test_mismatched_lengths_are_a_plain_value_error() -> None:
     with pytest.raises(ValueError, match="same length") as raised:
         spectrum(_T, _V[:-1])
     assert not isinstance(raised.value, SamplingError)
+
+
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1
+
+
+def test_fractional_timestamps_are_rejected_not_truncated() -> None:
+    times = [index + 0.5 for index in range(8)]  # 0.5, 1.5, ..., 7.5
+    with pytest.raises(SamplingError, match="index 0 is not an integer") as raised:
+        spectrum(times, [0.0] * 8)  # type: ignore[arg-type]
+    assert "0.5" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "times",
+    [
+        pytest.param([float(index) for index in range(8)], id="integral-floats"),
+        pytest.param(np.arange(8, dtype=np.float64), id="float-array"),
+        pytest.param([0, 1, 2, 3, 4, 5, 6, 7.25], id="mixed-list"),
+        pytest.param([False, True, 2, 3, 4, 5, 6, 7], id="bool"),
+        pytest.param(["0", "1", "2", "3", "4", "5", "6", "7"], id="strings"),
+    ],
+)
+def test_non_integer_timestamp_types_are_rejected(times: object) -> None:
+    with pytest.raises(SamplingError, match="not an integer"):
+        spectrum(times, [0.0] * 8)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("times", "index"),
+    [
+        pytest.param([2**63 + step for step in range(8)], 0, id="above-int64-uint64-list"),
+        pytest.param(np.arange(8, dtype=np.uint64) + np.uint64(2**63), 0, id="uint64-array"),
+        pytest.param([-1, 0, 1, 2, 3, 4, 5, 2**63], 7, id="mixed-sign-list"),
+        pytest.param([*range(7), 2**64], 7, id="past-uint64"),
+        pytest.param([INT64_MIN - 1, *range(7)], 0, id="below-int64"),
+    ],
+)
+def test_out_of_range_timestamps_raise_sampling_error(times: object, index: int) -> None:
+    with pytest.raises(SamplingError, match=f"index {index} .* outside the signed 64-bit"):
+        spectrum(times, [0.0] * 8)  # type: ignore[arg-type]
+
+
+def test_span_wider_than_int64_does_not_overflow() -> None:
+    step = 2**61
+    times = [INT64_MIN + index * step for index in range(8)]  # span 7 * 2**61 > INT64_MAX
+    result = spectrum(times, [0.0] * 8)
+    assert result.start_ns == INT64_MIN
+    assert result.end_ns == INT64_MIN + 7 * step
+    assert result.max_jitter == 0.0
+    assert result.sample_rate_hz == pytest.approx(1e9 / step, rel=1e-12)
+
+
+def test_spacing_wider_than_int64_is_not_reported_as_decreasing() -> None:
+    times = [INT64_MIN, *range(INT64_MAX - 6, INT64_MAX + 1)]  # first step wraps in int64
+    with pytest.raises(SamplingError, match="not uniform.*index 1"):
+        spectrum(times, [0.0] * 8)
+
+
+def test_unsigned_and_extreme_int64_timestamps_in_range_are_accepted() -> None:
+    unsigned = np.arange(8, dtype=np.uint64) * np.uint64(1_000) + np.uint64(INT64_MAX - 7_000)
+    result = spectrum(unsigned, [0.0] * 8)  # type: ignore[arg-type]
+    assert result.end_ns == INT64_MAX
+    assert result.sample_rate_hz == pytest.approx(1e6)
+    numpy_ints = list(np.arange(8, dtype=np.int32) * np.int32(10))
+    assert spectrum(numpy_ints, [0.0] * 8).end_ns == 70  # type: ignore[arg-type]

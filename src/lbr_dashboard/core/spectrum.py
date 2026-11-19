@@ -32,6 +32,8 @@ SCALING = (
 )
 # Bins taken up by the DC main lobe of each window; the peak search skips them.
 DC_LOBE_BINS = {"none": 1, "hann": 2}
+INT64_MIN = int(np.iinfo(np.int64).min)
+INT64_MAX = int(np.iinfo(np.int64).max)
 RESAMPLE_HINT = "resample the signal to a uniform rate explicitly before computing a spectrum"
 
 FloatArray = npt.NDArray[np.float64]
@@ -135,9 +137,10 @@ def spectrum(
     ("none" or a periodic "hann"), then ``numpy.fft.rfft``.
 
     Raises :class:`SamplingError` (a ``ValueError``) when there are fewer than
-    ``MIN_SAMPLES`` samples, any value is missing or non-finite, timestamps are
-    not strictly increasing, or any sample spacing differs from the mean
-    spacing by more than ``max_jitter`` (a fraction of the mean spacing).
+    ``MIN_SAMPLES`` samples, any value is missing or non-finite, any timestamp
+    is not an integer in the signed 64-bit range, timestamps are not strictly
+    increasing, or any sample spacing differs from the mean spacing by more
+    than ``max_jitter`` (a fraction of the mean spacing).
     Raises ``ValueError`` for bad options or mismatched lengths.
     """
 
@@ -164,22 +167,27 @@ def spectrum(
             f"fill or drop them and {RESAMPLE_HINT}"
         )
 
-    times = np.asarray(times_ns, dtype=np.int64)
-    steps = np.diff(times)
-    not_increasing = np.flatnonzero(steps <= 0)
+    times = _checked_times(times_ns)
+    # Compare instead of subtracting so far-apart timestamps cannot wrap around.
+    not_increasing = np.flatnonzero(times[1:] <= times[:-1])
     if not_increasing.size:
         index = int(not_increasing[0]) + 1
-        kind = "duplicate" if steps[index - 1] == 0 else "decreasing"
+        kind = "duplicate" if times[index] == times[index - 1] else "decreasing"
         raise SamplingError(
             f"timestamps must be strictly increasing; {kind} timestamp at index {index}; "
             f"sort and de-duplicate the samples and {RESAMPLE_HINT}"
         )
 
-    span_ns = int(times[-1] - times[0])
+    # Every spacing is now in [1, 2**64 - 1] ns, so the difference taken modulo
+    # 2**64 in uint64 is exact even when the int64 subtraction would overflow.
+    unsigned = times.view(np.uint64)
+    steps = (unsigned[1:] - unsigned[:-1]).astype(np.float64)
+    span_ns = int(times[-1]) - int(times[0])
     mean_step = span_ns / (count - 1)
-    jitter = float(np.max(np.abs(steps - mean_step)) / mean_step)
+    deviation = np.abs(steps - mean_step)
+    jitter = float(np.max(deviation) / mean_step)
     if jitter > max_jitter:
-        worst = int(np.argmax(np.abs(steps - mean_step))) + 1
+        worst = int(np.argmax(deviation)) + 1
         raise SamplingError(
             f"sample spacing is not uniform: spacing before index {worst} differs from the "
             f"mean spacing by {jitter:.3%} (tolerance {max_jitter:.3%}), which can mean a "
@@ -221,6 +229,58 @@ def spectrum(
         max_jitter=jitter,
         start_ns=int(times[0]),
         end_ns=int(times[-1]),
+    )
+
+
+def _checked_times(times_ns: Sequence[int]) -> npt.NDArray[np.int64]:
+    """Return the timestamps as int64, or raise SamplingError if any cannot be one.
+
+    Every timestamp must be an integer (not a bool or a float, even an integral
+    one) inside the signed 64-bit range. Nothing is rounded or truncated.
+    """
+
+    try:
+        raw = np.asarray(times_ns)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise SamplingError(f"timestamps must be integer nanoseconds: {error}") from None
+    if raw.ndim != 1:
+        raise SamplingError(f"timestamps must be a flat sequence, got {raw.ndim} dimension(s)")
+    if raw.dtype.kind in "iu" and not isinstance(times_ns, np.ndarray):
+        # numpy infers an integer dtype for a list that mixes bools with ints.
+        flag = next((i for i, v in enumerate(times_ns) if isinstance(v, (bool, np.bool_))), None)
+        if flag is not None:
+            raise SamplingError(_not_integer(flag, times_ns[flag]))
+    if raw.dtype.kind == "i":
+        return raw.astype(np.int64)
+    if raw.dtype.kind == "u":
+        too_large = np.flatnonzero(raw > INT64_MAX)
+        if too_large.size:
+            index = int(too_large[0])
+            raise SamplingError(_out_of_range(index, int(raw[index])))
+        return raw.astype(np.int64)
+    # Lists that mix types or hold integers past int64 are inferred as float or
+    # object arrays, so check the original elements one by one.
+    checked: list[int] = []
+    for index, value in enumerate(times_ns):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+            raise SamplingError(_not_integer(index, value))
+        if not INT64_MIN <= int(value) <= INT64_MAX:
+            raise SamplingError(_out_of_range(index, int(value)))
+        checked.append(int(value))
+    return np.array(checked, dtype=np.int64)
+
+
+def _not_integer(index: int, value: object) -> str:
+    return (
+        f"timestamp at index {index} is not an integer number of nanoseconds "
+        f"(got {value!r}); timestamps are never rounded or truncated"
+    )
+
+
+def _out_of_range(index: int, value: int) -> str:
+    return (
+        f"timestamp at index {index} ({value}) is outside the signed 64-bit nanosecond "
+        f"range [{INT64_MIN}, {INT64_MAX}]"
     )
 
 
