@@ -84,6 +84,9 @@ def test_theme_switch_updates_live_widgets_and_late_docks(qtbot, tmp_path):
         base = QColor("#ffffff")
         assert contrast(QColor(CURSOR_COLOR), base) >= 3
         assert dock.plot.backgroundBrush().color() == base
+        assert dock.multi_plot is not None and dock.multi_plot.curves
+        for item in dock.multi_plot.curves.values():
+            assert contrast(item.opts["pen"].color(), base) >= 3
 
         controller.set_theme("dark")
         base = QColor("#202020")
@@ -91,9 +94,9 @@ def test_theme_switch_updates_live_widgets_and_late_docks(qtbot, tmp_path):
         assert dock.plot.backgroundBrush().color() == base
         curve = window.right_panel.time_plot.curve
         assert curve is not None
-        plot = dock.plot.getPlotItem()
-        assert plot is not None
-        assert curve.opts["pen"].color() == plot.listDataItems()[0].opts["pen"].color()
+        assert dock.multi_plot is not None and dock.multi_plot.curves
+        for item in dock.multi_plot.curves.values():
+            assert contrast(item.opts["pen"].color(), base) >= 3
 
         descriptor = SignalDescriptor("bench.missing", "Missing", ("bench",), "numeric", "demo")
         browser.refresh(SignalSchema(1, (descriptor,)), {descriptor.identifier: (False, "Offline")})

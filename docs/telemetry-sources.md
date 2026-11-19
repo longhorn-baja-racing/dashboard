@@ -5,8 +5,12 @@ Issue #20 defines a Qt-free `TelemetrySource` protocol and typed events in
 `core.sources`. This replaces the earlier minimal callback-only protocol; no
 production adapter used that earlier interface. The legacy CSV UI continues to
 use its importer/controller. CSV mapping (#31), simulator scenarios (#23), session
-ingestion (#21), replay controls (#22), and the reusable conformance toolkit (#111)
-remain separate tasks. No binary protocol or selected hardware is required.
+ingestion (#21), and replay controls (#22) are separate work. The
+[source conformance suite](source-conformance.md) (#111) checks the shared
+contract without a binary protocol or physical hardware.
+
+See [Adding a telemetry source adapter](adding-a-source-adapter.md) for a
+tested file adapter and the source picker registration example.
 
 ## Owner and worker
 
