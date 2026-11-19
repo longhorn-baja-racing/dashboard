@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  # The queued workflow handles review requests instead of automatic reviews.
+  auto_review:
+    enabled: false
+    drafts: false
+  path_instructions:
+    - path: "**/*.py"
+      instructions: |
+        Prioritize telemetry correctness, replay time synchronization, CSV
+        timestamp and unit handling, Qt GUI-thread safety, and cross-platform
+        behavior on Windows, Linux, and macOS. Avoid repeating Ruff/Pyright
+        style and type-only findings already caught by the Quality workflow.
+    - path: "tests/**"
+      instructions: |
+        Flag missing regression coverage, unstable tests, and checks that fail
+        to enforce the public telemetry and source-adapter contracts.
