@@ -1,5 +1,6 @@
 """Visible import paths, failed-load transactionality and worker lifecycle."""
 
+from pathlib import Path
 from threading import Event
 from typing import cast
 
@@ -70,6 +71,33 @@ def test_text_only_file_keeps_table_and_explains_empty_plot_selector(window, qtb
     assert window.right_panel.table.item(1, 0).text() == "done"
     plot = window.right_panel.plot_widget.getPlotItem()
     assert not plot.listDataItems() and "No numeric readings" in plot.titleLabel.text
+
+
+@pytest.mark.parametrize(
+    ("filename", "message", "state"),
+    [
+        ("error_bad_encoding.csv", "not valid UTF-8", "error"),
+        ("error_empty.csv", "no data rows", "error"),
+        ("blank_timestamp_cell.csv", "Skipped 1", "ready"),
+    ],
+)
+def test_documented_malformed_fixture_through_open_button(
+    window, qtbot, monkeypatch, filename, message, state
+):
+    path = Path(__file__).parents[2] / "sample_data" / "fixtures" / "malformed" / filename
+    window.demo_button.click()
+    previous = series(window)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (str(path), "CSV"))
+    qtbot.mouseClick(window.open_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.import_state == state)
+    assert message in window.import_message.text()
+    assert filename in window.import_message.text()
+    if state == "error":
+        assert series(window) == previous
+        assert str(path) in window.error_details.toPlainText()
+    else:
+        assert series(window) == ((0, 200), (1, 3))
+        assert window.right_panel.table.rowCount() == 3
 
 
 def test_text_file_with_bad_timestamps_keeps_rows_and_plots_valid_samples(
