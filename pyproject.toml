@@ -14,6 +14,7 @@ authors = [{ name = "Longhorn Baja Racing" }]
 dependencies = [
     "numpy>=1.25",
     "PySide6>=6.7,<7",
+    "numpy>=1.25,<3",
     "pyqtgraph>=0.13,<1",
 ]
 classifiers = [

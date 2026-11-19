@@ -7,11 +7,23 @@ from typing import Protocol
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QMainWindow,
+    QMessageBox,
+    QProgressDialog,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from ..core.lbr_session import LbrSession
 from ..core.log import NumericColumn
 from .constants import MIN_PANEL_WIDTH
 from .docks import WorkspaceDocks
+from .lbr_session_view import LbrSessionView
 from .left_panel import LeftPanel
 from .replay_bar import ReplayBar
 from .right_panel import RightPanel
@@ -23,6 +35,26 @@ class CsvLoader(Protocol):
     """Synchronous application operation exposed to the window."""
 
     def load_csv(self, file_path: str) -> None: ...
+
+
+class ImportProgress:
+    """A cancellable progress dialog that importers report into."""
+
+    def __init__(self, parent: QMainWindow, file_name: str) -> None:
+        self._dialog = QProgressDialog(f"Reading {file_name}...", "Cancel", 0, 1000, parent)
+        self._dialog.setWindowTitle("Opening session")
+        self._dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._dialog.setMinimumDuration(400)
+
+    def report(self, done: int, total: int) -> bool:
+        """Show progress and return False once the user has cancelled."""
+
+        self._dialog.setValue(min(999, done * 1000 // max(total, 1)))
+        QApplication.processEvents()
+        return not self._dialog.wasCanceled()
+
+    def close(self) -> None:
+        self._dialog.close()
 
 
 class SourceOwner(Protocol):
@@ -71,13 +103,19 @@ class MainWindow(QMainWindow):
 
         self.left_panel.setMinimumWidth(MIN_PANEL_WIDTH)
         self.right_panel.setMinimumWidth(MIN_PANEL_WIDTH)
+        # Firmware lbr-csv exports get their own view; other CSVs keep the table view.
+        self.lbr_view = LbrSessionView()
+        self.pages = QStackedWidget()
+        self.pages.addWidget(splitter)
+        self.pages.addWidget(self.lbr_view)
+        self.import_error: QMessageBox | None = None
         self.source_picker = SourcePicker()
         self.replay_bar = ReplayBar()
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.addWidget(self.source_picker)
         layout.addWidget(self.replay_bar)
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.pages, 1)
         self.setCentralWidget(container)
         self.workspace_docks = WorkspaceDocks(
             self, lambda: self.left_panel.signal_browser.selected_id
@@ -141,6 +179,7 @@ class MainWindow(QMainWindow):
         if self.source_owner is not None:
             self.source_owner.release_for_legacy()
         self.statusBar().clearMessage()
+        self.pages.setCurrentIndex(0)
         self.right_panel.table.setEditTriggers(self.right_panel.legacy_edit_triggers)
         self.right_panel.set_table(headers, rows)
         self.left_panel.set_columns(list(headers))
@@ -155,3 +194,31 @@ class MainWindow(QMainWindow):
         """Forward model values to the presentation widget for plotting."""
 
         self.right_panel.plot_column(column_name, values, timestamp_values)
+
+    def show_source_name(self, file_name: str) -> None:
+        """Name the file whose data is currently shown."""
+
+        self.setWindowTitle(f"LBR Dashboard - {file_name}")
+
+    def import_progress(self, file_name: str) -> ImportProgress:
+        """Progress for a long import; the caller closes it when done."""
+
+        return ImportProgress(self, file_name)
+
+    def display_lbr_session(self, session: LbrSession) -> None:
+        """Show an imported firmware session in the session view."""
+
+        if self.source_owner is not None:
+            self.source_owner.release_for_legacy()
+        self.statusBar().clearMessage()
+        self.lbr_view.set_session(session)
+        self.pages.setCurrentWidget(self.lbr_view)
+
+    def show_import_error(self, message: str) -> None:
+        """Explain a failed import without blocking; the current view is unchanged."""
+
+        box = QMessageBox(QMessageBox.Icon.Warning, "Could not open file", message, parent=self)
+        box.setInformativeText("The previously opened data is still shown.")
+        box.setModal(False)
+        box.show()
+        self.import_error = box
