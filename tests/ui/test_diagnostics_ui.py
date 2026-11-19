@@ -261,7 +261,7 @@ def test_entry_point_logs_lifecycle_and_restores_hooks(
 ) -> None:
     window = app.create_main_window()
     qtbot.addWidget(window)
-    monkeypatch.setattr(app, "create_main_window", lambda: window)
+    monkeypatch.setattr(app, "create_main_window", lambda **kwargs: window)
     monkeypatch.setattr(app.signal, "signal", lambda *args: None)
     previous_hook = sys.excepthook
     root_handlers = list(logging.getLogger().handlers)

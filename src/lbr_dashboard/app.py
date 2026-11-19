@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import signal
 import sys
 from collections.abc import Sequence
 
+from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
 from .core.log import LogImporter
+from .core.preferences import PreferencesStore
 from .core.registry import Registry
 from .dashboard_controller import DashboardController
 from .diagnostics import configure_logging, install_exception_hooks
 from .importers.csv_importer import CsvImporter
+from .preferences_controller import PreferencesController
+from .source_controller import SourceController
 from .ui.diagnostics import ErrorNotifier, attach_diagnostics, install_qt_message_handler
 from .ui.main_window import MainWindow
 from .version import __version__
@@ -30,13 +35,66 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     return QApplication(list(sys.argv if argv is None else argv))
 
 
-def create_main_window() -> MainWindow:
+class GuiThreadGarbageCollector(QObject):
+    """Run Python's cyclic garbage collector only on the GUI thread.
+
+    Python collects cycles on whichever thread happens to allocate when a
+    threshold is crossed. If that is a background worker and the garbage holds
+    Qt objects, their destructors run off the GUI thread and can deadlock with
+    the GUI thread (QObject mutex vs the GIL). Automatic collection is disabled
+    while this object is active and a GUI-thread timer collects instead, using
+    the same generation thresholds.
+    """
+
+    def __init__(self, parent: QObject | None = None, interval_ms: int = 1000) -> None:
+        super().__init__(parent)
+        self._thresholds = gc.get_threshold()
+        self._was_enabled = gc.isenabled()
+        gc.disable()
+        self.timer = QTimer(self)
+        self.timer.setInterval(interval_ms)
+        self.timer.timeout.connect(self.collect)
+        self.timer.start()
+
+    def collect(self) -> int:
+        """Collect each generation whose allocation count passed its threshold."""
+
+        found = 0
+        for generation, (count, threshold) in enumerate(
+            zip(gc.get_count(), self._thresholds, strict=True)
+        ):
+            if threshold <= 0 or count <= threshold:
+                break
+            found += gc.collect(generation)
+        return found
+
+    def stop(self) -> None:
+        """Stop the timer, collect once and restore automatic collection."""
+
+        self.timer.stop()
+        gc.collect()
+        if self._was_enabled:
+            gc.enable()
+
+
+def install_garbage_collector(application: QApplication) -> GuiThreadGarbageCollector:
+    """Keep cyclic garbage collection on the GUI thread for the app's lifetime."""
+
+    existing = application.findChild(GuiThreadGarbageCollector)
+    if existing is not None:
+        return existing
+    return GuiThreadGarbageCollector(application)
+
+
+def create_main_window(*, preferences_store: PreferencesStore | None = None) -> MainWindow:
     """Compose the application shell without showing it."""
 
     importers: Registry[LogImporter] = Registry("importers")
     importers.register("csv", CsvImporter)
     window = MainWindow()
     window.attach_controller(DashboardController(window, importers.create("csv")))
+    window.source_owner = SourceController(window)
+    window.preferences_controller = PreferencesController(window, preferences_store)
     return window
 
 
@@ -48,10 +106,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     restore_qt_messages = install_qt_message_handler()
     try:
         application = create_application(argv)
+        install_garbage_collector(application)
         notifier = ErrorNotifier(diagnostics)
         restore_hooks = install_exception_hooks(notifier.notify)
         try:
-            window = create_main_window()
+            window = create_main_window(preferences_store=PreferencesStore())
             attach_diagnostics(window, diagnostics, notifier)
             window.show()
             logger.info("LBR Dashboard %s started", __version__)

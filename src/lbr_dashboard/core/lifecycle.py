@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from math import isfinite
 from threading import Event, Lock, Thread
+from time import monotonic
 from types import MappingProxyType
 from typing import Any, TypeAlias
+
+from .signals import SignalAvailability, SignalDescriptor, SignalSample, SignalSchema, SignalSeries
 
 
 class CancellationRequested(Exception):
@@ -30,8 +34,33 @@ class CancellationToken:
         if self.is_cancelled:
             raise CancellationRequested("Background work was cancelled")
 
+    def wait(self, timeout: float) -> bool:
+        """Wait up to a finite timeout, including linked cancellation signals."""
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise ValueError("timeout must be a finite nonnegative number")
+        if not 0 <= timeout <= 86400 or not isfinite(timeout):
+            raise ValueError("timeout must be between zero and 86400 seconds")
+        deadline = monotonic() + timeout
+        while not self.is_cancelled:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return False
+            self._event.wait(min(remaining, 0.02))
+        return True
+
 
 def _freeze(value: object) -> Any:
+    if type(value) in (
+        SignalAvailability,
+        SignalDescriptor,
+        SignalSample,
+        SignalSchema,
+        SignalSeries,
+        ServiceFailure,
+    ):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return value
     if isinstance(value, Mapping):
@@ -67,6 +96,10 @@ class ServiceFailure:
 
     exception_type: str
     message: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.exception_type, str) or not isinstance(self.message, str):
+            raise TypeError("Service failure details must be strings")
 
 
 Work: TypeAlias = Callable[[CancellationToken, Callable[[ServiceEvent], None]], None]
@@ -131,9 +164,8 @@ class BackgroundService:
     def _run(self) -> None:
         try:
             self._work(self._cancel, self._emit)
-        except CancellationRequested:
-            pass
-        except Exception as exc:
-            self._failure = ServiceFailure(type(exc).__name__, str(exc))
+        except BaseException as exc:
+            if not (isinstance(exc, CancellationRequested) and self._cancel.is_cancelled):
+                self._failure = ServiceFailure(type(exc).__name__, str(exc))
         finally:
             self._finished.set()
