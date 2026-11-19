@@ -1,4 +1,4 @@
-.PHONY: format lint typecheck test quality format-check build run
+.PHONY: format lint typecheck test quality format-check build run portable
 
 format:
 	uv run --locked ruff format .
@@ -23,3 +23,8 @@ build:
 
 run:
 	uv run --locked lbr-dashboard
+
+portable:
+	uv sync --locked --extra dev --extra package
+	uv run --locked python scripts/build_portable.py
+	uv run --locked python scripts/smoke_portable.py dist/portable

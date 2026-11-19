@@ -84,6 +84,7 @@ def test_main_installs_the_collector_before_building_the_window(qapp, monkeypatc
         return _Window()
 
     monkeypatch.setattr(app_module, "create_main_window", create)
+    monkeypatch.setattr(app_module, "attach_diagnostics", lambda *args: None)
     monkeypatch.setattr(QApplication, "exec", lambda self: 0)
     assert app_module.main([]) == 0
     assert calls == ["collector", "window", "show"]
