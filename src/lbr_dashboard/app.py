@@ -11,9 +11,12 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
 from .core.log import LogImporter
+from .core.preferences import PreferencesStore
 from .core.registry import Registry
 from .dashboard_controller import DashboardController
 from .importers.csv_importer import CsvImporter
+from .preferences_controller import PreferencesController
+from .source_controller import SourceController
 from .ui.main_window import MainWindow
 
 
@@ -77,13 +80,15 @@ def install_garbage_collector(application: QApplication) -> GuiThreadGarbageColl
     return GuiThreadGarbageCollector(application)
 
 
-def create_main_window() -> MainWindow:
+def create_main_window(*, preferences_store: PreferencesStore | None = None) -> MainWindow:
     """Compose the application shell without showing it."""
 
     importers: Registry[LogImporter] = Registry("importers")
     importers.register("csv", CsvImporter)
     window = MainWindow()
     window.attach_controller(DashboardController(window, importers.create("csv")))
+    window.source_owner = SourceController(window)
+    window.preferences_controller = PreferencesController(window, preferences_store)
     return window
 
 
@@ -93,6 +98,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     application = create_application(argv)
     install_garbage_collector(application)
-    window = create_main_window()
+    window = create_main_window(preferences_store=PreferencesStore())
     window.show()
     return application.exec()

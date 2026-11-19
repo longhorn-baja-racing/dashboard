@@ -1,6 +1,18 @@
 """Framework-neutral contracts and lifecycle primitives."""
 
-from .contracts import EventSink, TelemetrySource
+from .contracts import (
+    EventSink,
+    SourceCapabilities,
+    SourceError,
+    SourceEvent,
+    SourceEventKind,
+    SourceEventQueue,
+    SourceHealth,
+    SourceQueueStats,
+    SourceState,
+    TelemetrySource,
+    UnsupportedSourceOperation,
+)
 from .lifecycle import (
     BackgroundService,
     CancellationRequested,
@@ -9,7 +21,16 @@ from .lifecycle import (
     ServiceFailure,
 )
 from .log import LogImporter, LogSession, LogSessionStore
+from .preferences import (
+    Preferences,
+    PreferencesError,
+    PreferencesLoad,
+    PreferencesStore,
+    RecentSource,
+)
 from .registry import FactoryError, Registry, RegistryError
+from .session import RejectedSourceBatch, SessionRecord, SessionSnapshot, TelemetrySession
+from .session_clock import ClockSnapshot, ClockSubscriberError, PlaybackMode, SessionClock
 from .signals import (
     KNOWN_SIGNAL_TYPES,
     SignalAvailability,
@@ -20,8 +41,37 @@ from .signals import (
     SignalSchemaError,
     SignalSeries,
 )
+from .simulator import SimulatedSignal, SimulatorSource, SimulatorStats, example_signals
+from .sources import IteratorSource
 
 __all__ = [
+    "Preferences",
+    "PreferencesError",
+    "PreferencesLoad",
+    "PreferencesStore",
+    "RecentSource",
+    "SimulatedSignal",
+    "SimulatorSource",
+    "SimulatorStats",
+    "example_signals",
+    "ClockSnapshot",
+    "ClockSubscriberError",
+    "PlaybackMode",
+    "SessionClock",
+    "RejectedSourceBatch",
+    "SessionRecord",
+    "SessionSnapshot",
+    "TelemetrySession",
+    "IteratorSource",
+    "SourceCapabilities",
+    "SourceError",
+    "SourceEvent",
+    "SourceEventKind",
+    "SourceEventQueue",
+    "SourceHealth",
+    "SourceQueueStats",
+    "SourceState",
+    "UnsupportedSourceOperation",
     "BackgroundService",
     "CancellationRequested",
     "CancellationToken",

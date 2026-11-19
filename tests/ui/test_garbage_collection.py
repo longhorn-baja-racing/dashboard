@@ -78,7 +78,8 @@ def test_main_installs_the_collector_before_building_the_window(qapp, monkeypatc
         def show(self) -> None:
             calls.append("show")
 
-    def create() -> _Window:
+    def create(*, preferences_store) -> _Window:
+        assert preferences_store is not None
         calls.append("window")
         return _Window()
 

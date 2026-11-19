@@ -18,6 +18,16 @@ What works on `main` today:
   and shows the raw rows in a table.
 - CSV decoding lives outside the Qt widgets. The tabular `LogSession` is a
   compatibility model, not the planned mixed-rate session model.
+- A **Telemetry source** panel that selects a `timestamp_ms` CSV preset or a
+  deterministic finite/live simulator. Both feed the generic source/session
+  model, and the panel shows source identity, health and capabilities, with
+  disconnect and retry. See the [source-picker walkthrough](docs/source-picker.md).
+- A [searchable signal hierarchy](docs/signal-browser.md) with stable IDs, units,
+  source metadata and availability, and [session replay controls](docs/replay-controls.md)
+  (play/pause, seek, speed, time display) driving one shared clock.
+- Time plots, dockable plot and value widgets with several signals and
+  independent axes, synchronized cursors, saved local preferences and accessible
+  light and dark themes.
 - Cross-platform CI with tests, lint, formatting, typing, packaging and
   installed-package smoke checks (see [Quality checks](#quality-checks)).
 
@@ -135,6 +145,9 @@ Its columns are example data, not a required format.
 
 The older `src/main.py`, `src/app.py`, `src/ui` and `src/models` paths are import
 wrappers for compatibility. New implementation belongs in `src/lbr_dashboard`.
+
+See [Adding a telemetry source adapter](docs/adding-a-source-adapter.md) for a
+small runnable example and the shared conformance tests.
 
 ## Quality checks
 
