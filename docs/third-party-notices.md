@@ -36,13 +36,17 @@ without notices fails CI.
 
 ## Items for the packaging work (#52, #53, #56)
 
-- [ ] Copy the `--out` folder and the dashboard `LICENSE` into every ZIP and
-      installer, and fail the build if `THIRD-PARTY-NOTICES.txt` is missing.
-- [ ] Keep the Qt and PySide6 libraries as separate, replaceable shared
-      libraries (no static linking or merging into one executable), as LGPL-3.0
-      use expects.
-- [ ] Point to the exact Qt for Python and Qt source versions used (the
-      collector writes the links).
-- [ ] When the freezing tool is chosen (for example PyInstaller), add its own
-      runtime or bootloader notices if it ships any.
+The portable ZIP ([portable-build.md](portable-build.md)) covers the first
+four; the installer and releases reuse that build.
+
+- [x] Copy the `--out` folder and the dashboard `LICENSE` into every ZIP and
+      installer, and fail the build if any component has no license file.
+- [x] Keep the Qt and PySide6 libraries as separate, replaceable shared
+      libraries (PyInstaller one-folder mode, no static linking or one-file
+      bundling), as LGPL-3.0 use expects.
+- [x] Point to the exact Qt for Python and Qt source versions used (the
+      collector writes the links into `THIRD-PARTY-NOTICES.txt`).
+- [x] Add the freezing tool's own notices: the PyInstaller bootloader inside
+      the exe is GPL-2.0-or-later with its bootloader exception, and its
+      license file ships as `notices/pyinstaller-bootloader/`.
 - [ ] Re-run `--check` after any dependency update.

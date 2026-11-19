@@ -37,6 +37,9 @@ dev = [
     "pytest-timeout>=2,<3",
     "ruff>=0.8,<1",
 ]
+package = [
+    "pyinstaller>=6.16,<7",
+]
 
 [project.scripts]
 lbr-dashboard = "lbr_dashboard.app:main"
