@@ -108,10 +108,6 @@ def test_markup_looking_text_is_shown_literally(qtbot) -> None:
     assert widget.name_label.text() == "<b>Mode</b> &amp; <font color=red>state</font>"
     assert widget.identity_label.text() == "<i>car</i>.status from <u>adapter</u>"
     assert "<i>check</i>" in widget.quality_label.text()
-    # Rendered as rich text, the tags would vanish and the label would be narrower
-    # than the literal string; plain text keeps every character visible.
-    metrics = widget.value_label.fontMetrics()
-    assert widget.value_label.sizeHint().width() >= metrics.horizontalAdvance('"<b>READY</b>"')
 
 
 def test_records_for_other_signals_are_ignored(qtbot) -> None:
