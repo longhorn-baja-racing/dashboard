@@ -1,9 +1,19 @@
 # Signal value display
 
 `lbr_dashboard.core.value_display` turns one signal descriptor and its selected
-sample into display text (issue #109). It is standard library only and has no
-Qt dependency. `lbr_dashboard.ui.value_widget.SignalValueWidget` shows the
-result for one signal. The widget is not wired into the main window yet.
+sample into display text (issue #109). It uses the Qt-free signal model.
+`lbr_dashboard.ui.value_widget.SignalValueWidget` shows the
+result for one signal. In the dashboard choose **Workspace > Add value widget**,
+select a signal in the browser and click **Bind selected signal** or drag it
+into the widget.
+
+The card follows the shared replay clock for signals in the same source and
+timestamp domain. It shows the last measurement at or before that time,
+including unavailable readings. A reading older than one sample period is
+marked stale when a declared or recorded cadence is available. Without an
+aligned replay time the card is labeled **Latest reading**. A source switch
+that leaves the binding unresolved clears the value and displays the missing
+signal ID so the user can rebind it.
 
 ```python
 display = describe_value(descriptor, sample, now_ns=cursor_ns, max_age_ns=500_000_000)
@@ -23,8 +33,8 @@ not define a competing signal or source model:
 | `source_id` | source that defines the signal |
 | `data_type` | `numeric`, `integer`, `boolean`, `text`, `status`, `vector`, or anything else |
 | `canonical_unit` | unit text, or `None` / empty for no unit |
-| `component_labels` | optional labels for vector components |
-| `decimal_places` | optional fixed decimals (0 to 9); default is 6 significant digits |
+| `display.component_labels` | optional labels for vector components |
+| `display.decimal_places` | optional fixed decimals (0 to 9), defaulting to 6 significant digits |
 
 | `DisplaySample` | Meaning |
 | --- | --- |
@@ -33,12 +43,13 @@ not define a competing signal or source model:
 | `available` | False when the source reports no value |
 | `quality` | optional source quality text or unavailability reason |
 | `source_id` | optional source of the sample |
+| `unit` | measurement unit when supplied, falling back to the descriptor unit |
 
 `StaticDescriptor` and `StaticSample` are minimal frozen stand-ins for tests and
 mock data. The real types come from the signal model (#18). Its descriptor and
-sample already use the same attribute names for the shared fields; vector
-labels and decimal places can come from its display metadata through a thin
-adapter. The aliases `string`, `float`, `int`, and `bool` are accepted for
+sample expose the shared fields directly. The formatter reads vector labels
+and decimal places from the descriptor's display metadata. The aliases
+`string`, `float`, `int`, and `bool` are accepted for
 `text`, `numeric`, `integer`, and `boolean`.
 
 ## States
@@ -95,9 +106,4 @@ optional styling. Every label that shows descriptor or sample content uses
 `Qt.TextFormat.PlainText`, so markup-looking text such as `<b>READY</b>` is
 shown literally and never interpreted as rich text.
 
-## Not in this slice
-
-- Choosing the sample: nearest-sample query (#21) and the selected replay time
-  (#22) provide `sample` and `now_ns`.
-- Signal selection UI (#36) and placing the widget in the main window.
-- Statistics over an interval (#43).
+Interval statistics are tracked by #43.

@@ -231,9 +231,24 @@ class ReplayController(QObject):
                 or view.domains.get(descriptor.identifier, descriptor.timestamp_domain)
                 != frame.reference[2]
             ):
+                if dock.value_widget is not None:
+                    if dock.presenting_replay_value:
+                        dock.render()
+                    continue
                 dock.selected_reading.setText("Selected: no aligned reading")
                 if dock.cursor is not None:
                     dock.cursor.hide()
+                continue
+
+            if dock.value_widget is not None:
+                record = view.at_or_before(descriptor.identifier, frame.selected_ns)
+                half_period = reading_tolerance_ns(view, descriptor)
+                dock.present_value(
+                    descriptor,
+                    record.sample if record is not None else None,
+                    selected_ns=frame.selected_ns,
+                    max_age_ns=2 * half_period if half_period else None,
+                )
                 continue
 
             bindings = dock.multi_plot.bindings if dock.multi_plot is not None else {}

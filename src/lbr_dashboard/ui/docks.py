@@ -20,9 +20,12 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import SessionSnapshot, SignalDescriptor
+from ..core.signals import SignalSample
+from ..core.value_display import describe_value
 from .multi_trace_plot import Axis, MultiTracePlot
 from .plot_style import apply_plot_colors
 from .signal_browser import MIME_TYPE
+from .value_widget import SignalValueWidget
 
 DockKind = Literal["plot", "value"]
 
@@ -46,6 +49,9 @@ class SignalDock(QDockWidget):
         self.selected_reading = QLabel("Selected: no aligned reading")
         self.selected_reading.setTextFormat(Qt.TextFormat.PlainText)
         self.selected_reading.setWordWrap(True)
+        self.value_widget = SignalValueWidget("") if kind == "value" else None
+        self.value_reference = QLabel("Latest reading")
+        self.presenting_replay_value = False
         self.plot = pg.PlotWidget() if kind == "plot" else None
         self.multi_plot = MultiTracePlot(self.plot) if self.plot is not None else None
         bind = QPushButton("Bind selected signal")
@@ -55,8 +61,12 @@ class SignalDock(QDockWidget):
         body = QWidget()
         layout = QVBoxLayout(body)
         layout.addWidget(self.feedback)
-        layout.addWidget(self.readout)
-        layout.addWidget(self.selected_reading)
+        if self.value_widget is not None:
+            layout.addWidget(self.value_reference)
+            layout.addWidget(self.value_widget)
+        else:
+            layout.addWidget(self.readout)
+            layout.addWidget(self.selected_reading)
         if self.plot is not None:
             self.plot.setLabel("bottom", "Time since first shown reading", units="s")
             layout.addWidget(self.plot)
@@ -225,13 +235,24 @@ class SignalDock(QDockWidget):
         snapshot = self.workspace.snapshot
         if self.binding is None:
             self.readout.clear()
+            if self.value_widget is not None:
+                self.value_widget.set_signal_id("")
             return
         signal_id, source_id = self.binding
         descriptor = self.workspace.descriptor(signal_id)
         if descriptor is None or descriptor.source_id != source_id or snapshot is None:
             self.readout.setText(f"Missing signal: {signal_id}")
+            if self.value_widget is not None:
+                self.presenting_replay_value = False
+                self.feedback.setText(f"Missing signal: {signal_id}. Bind an available signal.")
+                self.value_reference.setText("Latest reading")
+                self.value_widget.set_signal_id(signal_id)
             return
-        records = snapshot.series[signal_id][-1000:]
+        records = snapshot.series[signal_id]
+        if self.value_widget is not None:
+            self.feedback.setText(f"Bound to {descriptor.display_name} ({signal_id}).")
+            self.present_value(descriptor, records[-1].sample if records else None)
+            return
         if not records:
             self.readout.setText("No readings yet.")
             return
@@ -239,6 +260,26 @@ class SignalDock(QDockWidget):
         unit = latest.unit or descriptor.canonical_unit or ""
         self.readout.setText(
             f"Latest: {latest.value} {unit}".rstrip() if latest.available else "Latest: unavailable"
+        )
+
+    def present_value(
+        self,
+        descriptor: SignalDescriptor,
+        sample: SignalSample | None,
+        *,
+        selected_ns: int | None = None,
+        max_age_ns: int | None = None,
+    ) -> None:
+        widget = self.value_widget
+        assert widget is not None
+        if widget.signal_id != descriptor.identifier:
+            widget.set_signal_id(descriptor.identifier)
+        self.presenting_replay_value = selected_ns is not None
+        self.value_reference.setText(
+            "Latest reading" if selected_ns is None else "Reading at replay time"
+        )
+        widget.show_display(
+            describe_value(descriptor, sample, now_ns=selected_ns, max_age_ns=max_age_ns)
         )
 
 
