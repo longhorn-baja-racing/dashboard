@@ -106,8 +106,10 @@ class ReplayController(QObject):
         view = self._snapshot
         if view is not None:
             if self._reference is None:
+                # The clock follows a recorded signal, never a derived one shown beside it.
+                signals = session.schema.signals if session is not None else view.schema.signals
                 self._reference = next(
-                    (d.identifier for d in view.schema.signals if view.series[d.identifier]), None
+                    (d.identifier for d in signals if view.series.get(d.identifier)), None
                 )
                 if self._reference is not None and self._live:
                     self.clock.follow_live()

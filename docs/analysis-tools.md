@@ -15,6 +15,10 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `derived` | the applied derived signal definitions (see `docs/derived-signals.md`) | `derived_changed` |
+
+The snapshot already contains the applied derived signals, so every tool can
+use them like recorded signals.
 
 Helpers:
 
@@ -44,3 +48,4 @@ The dock is created the first time the menu entry is used and reused after that.
 | Menu entry | Module | Issue |
 | --- | --- | --- |
 | Statistics | `ui/tools/statistics.py` | #43 |
+| Derived signals | `ui/tools/derived_signals.py` | #57 |
