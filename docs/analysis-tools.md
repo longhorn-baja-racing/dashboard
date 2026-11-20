@@ -45,3 +45,4 @@ The dock is created the first time the menu entry is used and reused after that.
 | --- | --- | --- |
 | Statistics | `ui/tools/statistics.py` | #43 |
 | Histogram | `ui/tools/histogram.py` | #66 |
+| Compare sessions | `ui/tools/session_overlay.py` | #64 |

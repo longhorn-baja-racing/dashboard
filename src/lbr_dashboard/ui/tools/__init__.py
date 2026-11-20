@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..analysis import AnalysisTool
 from .histogram import TOOL as HISTOGRAM
+from .session_overlay import TOOL as COMPARE_SESSIONS
 from .statistics import TOOL as STATISTICS
 
-TOOLS: tuple[AnalysisTool, ...] = (STATISTICS, HISTOGRAM)
+TOOLS: tuple[AnalysisTool, ...] = (STATISTICS, HISTOGRAM, COMPARE_SESSIONS)
