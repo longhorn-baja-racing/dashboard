@@ -15,6 +15,7 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `source_health` | the latest `SourceMonitorReport` of the active (or last) source, or None | `source_health_changed` |
 
 Helpers:
 
@@ -44,3 +45,4 @@ The dock is created the first time the menu entry is used and reused after that.
 | Menu entry | Module | Issue |
 | --- | --- | --- |
 | Statistics | `ui/tools/statistics.py` | #43 |
+| Source health | `ui/tools/source_health.py` | #44 |
