@@ -78,6 +78,25 @@ def test_error_shows_message_and_no_curve(widget: SpectrumWidget) -> None:
     assert not [item for item in plot.items if isinstance(item, pg.PlotDataItem)]
     assert "rpm: no spectrum" in _title(widget)
     assert "resample" in widget.summary.text()
+    assert not widget.plot_widget.isVisible()
+    widget.show_spectrum(_sine_spectrum(), "a")
+    assert widget.plot_widget.isVisible()
+
+
+def test_summary_states_scaling_and_title_follows_axis_text_color(
+    widget: SpectrumWidget,
+) -> None:
+    result = _sine_spectrum()
+    widget.show_spectrum(result, "a")
+    assert "Scaling: one-sided peak amplitude in V, corrected for window coherent gain" in (
+        widget.summary.text()
+    )
+    widget.plot_widget.getAxis("left").setTextPen(pg.mkPen("#123456"))
+    widget.show_spectrum(result, "a", mode="psd")
+    assert "Scaling: one-sided PSD in V^2/Hz" in widget.summary.text()
+    plot = widget.plot_widget.getPlotItem()
+    assert plot is not None
+    assert plot.titleLabel.opts["color"] == "#123456"
 
 
 def test_replace_clear_and_bad_mode(widget: SpectrumWidget) -> None:

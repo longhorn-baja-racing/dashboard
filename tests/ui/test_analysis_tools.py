@@ -185,3 +185,14 @@ def test_tool_plots_follow_theme_changes_and_are_released_with_their_widget(qtbo
     plot.deleteLater()
     qtbot.waitUntil(lambda: context.receivers("2theme_changed()") == 0)
     context.set_plot_colors("#000000", "#eeeeee")
+
+
+def test_tool_modules_are_discovered_alphabetically_with_unique_keys():
+    from lbr_dashboard.ui.tools import TOOLS, discover_tools
+
+    assert discover_tools() == TOOLS
+    labels = [tool.label for tool in TOOLS]
+    assert labels == sorted(labels, key=str.casefold)
+    keys = [tool.key for tool in TOOLS]
+    assert len(keys) == len(set(keys))
+    assert {"statistics", "histogram", "spectrum"} <= set(keys)
