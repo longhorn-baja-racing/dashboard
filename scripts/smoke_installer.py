@@ -310,9 +310,19 @@ def smoke(installer: Path, scratch: Path, older: Path | None = None) -> list[str
     except SmokeError:
         remove_leftover_install(identifier, scratch)
         raise
-    if any(target.parent.iterdir()):
+    if has_stray_files(target.parent):
         raise SmokeError(f"stray files left in {target.parent}")
     return lines
+
+
+def has_stray_files(folder: Path) -> bool:
+    """Return whether ``folder`` still holds anything after uninstall.
+
+    The installer creates every missing folder of the install path and the
+    uninstaller removes the ones it created, so a missing folder is clean.
+    """
+
+    return folder.exists() and any(folder.iterdir())
 
 
 def remove_leftover_install(identifier: str, scratch: Path) -> None:

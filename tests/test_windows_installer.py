@@ -574,3 +574,12 @@ def test_main_reports_and_keeps_logs(
 def test_registry_lookup_needs_windows() -> None:
     with pytest.raises(smoke.SmokeError, match="needs Windows"):
         smoke.uninstall_entry(smoke.app_id())
+
+
+def test_a_folder_the_uninstaller_removed_counts_as_clean(tmp_path):
+    gone = tmp_path / "created by the installer"
+    assert not smoke.has_stray_files(gone)
+    gone.mkdir()
+    assert not smoke.has_stray_files(gone)
+    (gone / "left.txt").write_text("x", encoding="utf-8")
+    assert smoke.has_stray_files(gone)
