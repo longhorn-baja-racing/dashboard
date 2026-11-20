@@ -94,10 +94,20 @@ Always set `origin_ns` to the session start: raw epoch timestamps (about
 1.7e18 ns) with `origin_ns=0` lose up to a few hundred nanoseconds per edge.
 Values set programmatically are stored exactly; only drags pass through float.
 
+## In the app
+
+The main window owns one `IntervalSelection` in `AnalysisContext`
+(`lbr_dashboard.ui.analysis`, see [analysis-tools.md](analysis-tools.md)). Its
+`bounds` follow the loaded session: the earliest to the latest measurement time
+over all signals. Loading another session clears the interval.
+
+- **Analysis > Select visible time range** (Ctrl+I) selects what the main plot
+  shows. Drag the region or its edges to edit it; Escape on the plot or
+  **Analysis > Clear time interval** clears it.
+- The region is drawn on the main time plot with the plot's own origin, so its
+  edges are at the same times as the shared state.
+
 ## Not yet included
 
-- Wiring into the main window, menus, or toolbar (waits for the plot work in #38
-  and the session model in #21).
-- Taking `bounds` from the session time range (#21/#22).
 - Looping and sample or time stepping inside the interval (tracked in #42, built
   only when needed).

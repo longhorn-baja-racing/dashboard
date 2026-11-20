@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from ..core.lbr_session import LbrSession
 from ..core.log import NumericColumn
+from .analysis import AnalysisContext, AnalysisDocks
 from .constants import MIN_PANEL_WIDTH
 from .docks import WorkspaceDocks
 from .lbr_session_view import LbrSessionView
@@ -35,6 +36,7 @@ from .left_panel import LeftPanel
 from .replay_bar import ReplayBar
 from .right_panel import RightPanel
 from .source_picker import SourcePicker
+from .tools import TOOLS
 from .top_menu_bar import TopMenuBar
 
 
@@ -176,6 +178,8 @@ class MainWindow(QMainWindow):
         self.workspace_docks = WorkspaceDocks(
             self, lambda: self.left_panel.signal_browser.selected_id
         )
+        self.analysis = AnalysisContext(self)
+        self.analysis_docks = AnalysisDocks(self, self.analysis, TOOLS)
         self.open_button.clicked.connect(self.open_csv)
         self.demo_button.clicked.connect(self.try_demo)
         self.cancel_button.clicked.connect(self.cancel_import)

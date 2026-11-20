@@ -166,6 +166,7 @@ class ReplayController(QObject):
         # The plot keeps its origin stable while the live retention window moves.
         frame = self.clock.snapshot()
         view = self._snapshot
+        self.window.analysis.set_cursor(frame.selected_ns if view is not None else None)
         selected = self.window.left_panel.signal_browser.selected_id
         records = view.series.get(selected or "", ()) if view else ()
         descriptor = (

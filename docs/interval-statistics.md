@@ -10,8 +10,10 @@ the signal/session model that is still being designed:
 - `values`: one reading per timestamp, for example an `array('d')` or a list
   that may contain `None`.
 
-`lbr_dashboard.ui.statistics_panel.StatisticsPanel` is a mock text readout of
-the results. It is not wired into the main window yet.
+`lbr_dashboard.ui.statistics_panel.StatisticsPanel` is the text readout. In the
+app, **Analysis > Statistics** opens it as a dock that follows the signal
+selected in the browser, the replay cursor (current value) and the shared time
+interval (statistics), as described in [analysis-tools.md](analysis-tools.md).
 
 ## Sample classification
 
@@ -86,5 +88,7 @@ The interval is located with binary search, so the work is proportional to the
 number of samples inside the interval. Ordering is checked for those samples
 and a `ValueError` is raised if they are out of order; out-of-order samples
 outside the selection are not detected. A full 1,000,000-sample selection takes
-a fraction of a second in pure Python; running it off the UI thread is left to
-the integration with the window queries (#21).
+a fraction of a second in pure Python. The app finds the interval in the session
+snapshot by binary search and recomputes at most once per 100 ms while data
+streams, so the UI stays responsive; a worker can be added if selections grow
+far beyond that.
