@@ -15,6 +15,7 @@ from typing import Any, cast
 from .contracts import SourceError, SourceEvent, SourceEventKind, SourceHealth
 from .lifecycle import CancellationToken
 from .signals import SignalDescriptor, SignalSample, SignalSchema
+from .source_health import SourceHealthConfig
 from .sources import IteratorSource
 
 
@@ -183,6 +184,20 @@ class SimulatorSource(IteratorSource):
     def simulator_stats(self) -> SimulatorStats:
         with self._stats_lock:
             return self._sim_stats
+
+    @property
+    def health_config(self) -> SourceHealthConfig:
+        """Health metadata this source provides: a heartbeat only in real-time mode.
+
+        Accelerated runs send heartbeats in simulated time, so their arrival
+        gaps say nothing about the link. There are no sequence numbers and no
+        decode step.
+        """
+
+        return SourceHealthConfig(
+            heartbeat_timeout_ns=2 * self._heartbeat if self._realtime else None,
+            reports_decode_errors=False,
+        )
 
     def _count(self, **changes: int) -> None:
         with self._stats_lock:

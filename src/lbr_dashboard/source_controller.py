@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
-from time import monotonic
+from time import monotonic, monotonic_ns
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QAbstractItemView, QFileDialog
@@ -21,9 +22,36 @@ from .core import (
     TelemetrySource,
     example_signals,
 )
-from .importers.csv_source import prepare_csv
+from .core.csv_mapping import CsvMapping
+from .core.derived_session import is_derived
+from .core.source_health import summary_text
+from .core.source_monitor import SourceHealthMonitor
+from .importers.csv_source import MAPPED_PREVIEW_ROWS, prepare_csv, prepare_mapped_csv
+from .importers.lbrlog_source import prepare_lbrlog
+from .importers.mapped_csv import CsvMappingError, MappedCsvImporter, read_sample, suggest_mapping
+from .importers.serial_source import (
+    DISCOVERY_S,
+    PortOpener,
+    SerialLiveSource,
+    SerialPortInfo,
+    prepare_serial,
+)
+from .recording_controller import RecordingController
 from .replay_controller import ReplayController
+from .serial_ports import list_serial_ports, open_serial_port
+from .ui.csv_mapping_dialog import CsvMappingDialog
 from .ui.main_window import MainWindow
+from .ui.source_picker import SERIAL_KEY
+from .ui.tools.session_overlay import TOOL as COMPARE_SESSIONS
+from .ui.tools.session_overlay import (
+    ComparisonPreset,
+    ComparisonSources,
+    Prepare,
+    SessionOverlayTool,
+)
+
+# While a live source streams, derived signals are evaluated at most this often.
+DERIVED_INTERVAL_S = 0.25
 
 
 @dataclass(frozen=True)
@@ -31,6 +59,26 @@ class SourceOption:
     key: str
     label: str
     prepare: Callable[[CancellationToken], Callable[[], TelemetrySource]]
+    path: Path | None = None
+    """The file the source reads, or None for sources without one."""
+
+
+#: ``progress(done, total)`` from a preparation worker.
+Progress = Callable[[int, int], None]
+
+
+@dataclass(frozen=True)
+class FileSourceOption:
+    """A replay source read from a file chosen in an open dialog."""
+
+    key: str
+    label: str
+    file_filter: str
+    prepare: Callable[[Path, CancellationToken, Progress], Callable[[], TelemetrySource]]
+
+
+def _prepare_lbrlog(path: Path, token: CancellationToken, progress: Progress):
+    return prepare_lbrlog(path, token, progress).source
 
 
 class SourceController(QObject):
@@ -41,7 +89,10 @@ class SourceController(QObject):
         self.window = window
         self.source: TelemetrySource | None = None
         self.session: TelemetrySession | None = None
+        self.log_path: Path | None = None
         self._options: dict[str, SourceOption] = {}
+        self._file_options: dict[str, FileSourceOption] = {}
+        self._progress: tuple[int, int] | None = None
         self._preparing: BackgroundService | None = None
         self._prepared: list[Callable[[], TelemetrySource]] = []
         self._next: Callable[[], TelemetrySource] | None = None
@@ -58,9 +109,22 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
-        # The snapshot the views show: the session snapshot plus transformed signals.
+        # The snapshot every view shows: the session snapshot plus transformed and
+        # derived signals.
         self._view: SessionSnapshot | None = None
+        self._derived_at = 0.0
+        self._derived_timer = QTimer(self)
+        self._derived_timer.setSingleShot(True)
+        self._derived_timer.setInterval(int(DERIVED_INTERVAL_S * 1000))
+        self._derived_timer.timeout.connect(self._refresh_view)
+        self.health_clock: Callable[[], int] = monotonic_ns
+        self.health: SourceHealthMonitor | None = None
+        self.mapping_dialog: CsvMappingDialog | None = None
         self.replay = ReplayController(window)
+        #: Serial port access; tests replace these with in-memory fakes.
+        self.list_serial_ports: Callable[[], list[SerialPortInfo]] = list_serial_ports
+        self.open_serial_port: PortOpener = open_serial_port
+        self.serial_discovery_s = DISCOVERY_S
         for family in ("process", "motion", "attitude", "live"):
 
             def prepare(token, family=family):
@@ -73,6 +137,19 @@ class SourceController(QObject):
                 )
 
             self.register(SourceOption(family, f"Fictional {family} simulator", prepare))
+        self.register_file(
+            FileSourceOption(
+                "lbrlog",
+                "Firmware log (.lbrlog)",
+                "Firmware logs (*.lbrlog *.LBRLOG *.lbr *.LBR);;All files (*)",
+                _prepare_lbrlog,
+            )
+        )
+        # Prepared per port by open_serial(); the picker shows the port chooser for it.
+        window.source_picker.choices.addItem("USB serial (firmware live)", SERIAL_KEY)
+        self.recording = RecordingController(self)
+        window.source_picker.ports_refresh_requested.connect(self.refresh_ports)
+        self._offer_comparison_sources()
         window.source_picker.connect_requested.connect(self.choose)
         window.source_picker.disconnect_requested.connect(self.disconnect)
         window.source_picker.retry_requested.connect(self.retry)
@@ -81,41 +158,160 @@ class SourceController(QObject):
         window.left_panel.list_widget.currentRowChanged.connect(self.select)
         window.left_panel.signal_browser.signal_selected.connect(self.select_signal)
         window.analysis.frames_changed.connect(self._frames_changed)
+        window.analysis.derived_changed.connect(self._derived_changed)
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.poll)
         self.timer.start()
 
+    def _offer_comparison_sources(self) -> None:
+        """Let Analysis > Compare sessions read CSV files and the finite simulators."""
+
+        def open_file(path: Path) -> Prepare:
+            def prepare(token: CancellationToken) -> Callable[[], TelemetrySource]:
+                return prepare_csv(path, token).source
+
+            return prepare
+
+        presets = tuple(
+            ComparisonPreset(option.key, f"{option.label} (finite)", option.prepare)
+            for key, option in self._options.items()
+            if key in {"process", "motion"}
+        )
+        sources = ComparisonSources(open_file, "timestamp_ms CSV files (*.csv)", presets)
+        self.window.analysis_docks.tools[COMPARE_SESSIONS.key] = replace(
+            COMPARE_SESSIONS, create=partial(SessionOverlayTool, sources=sources)
+        )
+
     def register(self, option: SourceOption) -> None:
-        if option.key in self._options:
+        if option.key in self._options or option.key == SERIAL_KEY:
             raise ValueError(f"Source option already registered: {option.key}")
         self._options[option.key] = option
         picker = self.window.source_picker
         if picker.choices.findData(option.key) < 0:
             picker.choices.addItem(option.label, option.key)
 
+    def register_file(self, option: FileSourceOption) -> None:
+        if option.key in self._options or option.key in self._file_options:
+            raise ValueError(f"Source option already registered: {option.key}")
+        self._file_options[option.key] = option
+        picker = self.window.source_picker
+        if picker.choices.findData(option.key) < 0:
+            picker.choices.addItem(option.label, option.key)
+
+    @property
+    def busy(self) -> bool:
+        return self._preparing is not None or self._releasing or self._closing
+
+    def refresh_ports(self) -> None:
+        picker = self.window.source_picker
+        try:
+            ports = self.list_serial_ports()
+        except Exception as error:
+            picker.set_ports([], f"Could not list serial ports: {error}")
+            return
+        picker.set_ports([(port.label, port.name) for port in ports])
+
+    def open_serial(self, port: str) -> None:
+        """Connect to the firmware's live stream on ``port`` (read-only)."""
+
+        opener = self.open_serial_port
+        discovery = self.serial_discovery_s
+
+        def prepare(token: CancellationToken) -> Callable[[], TelemetrySource]:
+            return prepare_serial(port, opener, token, discovery_s=discovery)
+
+        self.request(SourceOption(SERIAL_KEY, f"USB serial {port}", prepare))
+
     def choose(self, key: str) -> None:
-        if key == "csv":
+        if key == SERIAL_KEY:
+            port = self.window.source_picker.selected_port()
+            if port is None:
+                self.refresh_ports()
+                port = self.window.source_picker.selected_port()
+            if port is None:
+                self._notice = "No serial port is selected. Connect the device and refresh."
+                self._present()
+            else:
+                self.open_serial(port)
+        elif key == "csv":
             file_path, _ = QFileDialog.getOpenFileName(
                 self.window, "Open timestamp_ms CSV", "", "CSV files (*.csv)"
             )
             if file_path:
                 self.open_csv(Path(file_path))
+        elif key == "csv_mapped":
+            file_path, _ = QFileDialog.getOpenFileName(
+                self.window, "Open CSV to map", "", "CSV files (*.csv);;All files (*)"
+            )
+            if file_path:
+                self.map_csv(Path(file_path))
+        elif key in self._file_options:
+            option = self._file_options[key]
+            file_path, _ = QFileDialog.getOpenFileName(
+                self.window, f"Open {option.label}", "", option.file_filter
+            )
+            if file_path:
+                self.open_file(key, Path(file_path))
         else:
             self.request(self._options[key])
+
+    def open_file(self, key: str, path: Path) -> None:
+        option = self._file_options[key]
+
+        def prepare(token):
+            def progress(done: int, total: int) -> None:
+                # Runs on the worker; a cancelled worker cannot report into a newer request.
+                if not token.is_cancelled:
+                    self._progress = (done, total)
+
+            return option.prepare(path, token, progress)
+
+        self.request(SourceOption(key, f"{option.label} {path}", prepare))
 
     def open_csv(self, path: Path) -> None:
         def prepare(token):
             prepared = prepare_csv(path, token)
             return prepared.source
 
-        self.request(SourceOption("csv", str(path), prepare))
+        self.request(SourceOption("csv", str(path), prepare, path))
+
+    def map_csv(self, path: Path) -> None:
+        """Ask for an explicit column mapping; Cancel leaves the current session as it was."""
+        try:
+            headers, rows = read_sample(path)
+        except CsvMappingError as error:
+            self._notice = f"Could not open {path.name}: {error}"
+            self._present()
+            return
+        suggestion = suggest_mapping(headers, rows)
+        importer = MappedCsvImporter()
+        dialog = CsvMappingDialog(
+            path.name,
+            headers,
+            rows,
+            suggestion.mapping,
+            suggestion.ambiguities,
+            lambda mapping: importer.import_session(path, mapping, max_rows=MAPPED_PREVIEW_ROWS),
+            self.window,
+        )
+        dialog.accepted.connect(lambda: self.open_mapped_csv(path, dialog.mapping()))
+        dialog.finished.connect(dialog.deleteLater)
+        self.mapping_dialog = dialog
+        dialog.open()
+
+    def open_mapped_csv(self, path: Path, mapping: CsvMapping) -> None:
+        def prepare(token):
+            return prepare_mapped_csv(path, mapping, token).source
+
+        self.request(SourceOption("csv_mapped", str(path), prepare))
 
     def request(self, option: SourceOption) -> None:
         if self._preparing is not None or self._releasing or self._closing:
             return
         self._last = option
         self._prepared = []
+        self._progress = None
         self._cancel_preparation = False
         self._preparation_cancel_started = None
         self._notice = f"Preparing {option.label} - Disconnect cancels."
@@ -185,6 +381,7 @@ class SourceController(QObject):
             self.window.workspace_docks.update_snapshot(None)
             self.window.analysis.clear()
             self.window.analysis_docks.leave_plot()
+            self.health = None
             self._legacy_loaded = True
             self._notice = (
                 "Legacy CSV table loaded. Use the source picker for timestamped sessions."
@@ -193,6 +390,7 @@ class SourceController(QObject):
     def _begin_release(self) -> None:
         if self._releasing:
             return
+        self.recording.stop("the source was disconnected")
         self.replay.set_busy()
         self._releasing = True
         self._release_started = monotonic()
@@ -211,6 +409,7 @@ class SourceController(QObject):
     def _start(self, factory: Callable[[], TelemetrySource]) -> None:
         try:
             self.source = factory()
+            self.health = SourceHealthMonitor(self.source, clock=self.health_clock)
             self.session = TelemetrySession(
                 self.source.schema,
                 max_samples_per_signal=1000 if self.source.capabilities.is_live else None,
@@ -219,8 +418,10 @@ class SourceController(QObject):
             self.source.start()
             self._legacy_loaded = False
             self._label = self._last.label if self._last else self.source.source_id
+            self.log_path = self._last.path if self._last else None
             self.window.display_telemetry_source()
-            self._notice = ""
+            # A CSV replay may say which rows its import skipped.
+            self._notice = getattr(self.source, "import_summary", "")
             self._revision = -1
             self._view = None
             self._displayed_schema = None
@@ -249,6 +450,14 @@ class SourceController(QObject):
                 "Preparation cleanup is still pending. "
                 "Waiting for the adapter to release its worker."
             )
+        progress = self._progress
+        if self._preparing is not None and progress and not self._cancel_preparation:
+            done, total = progress
+            if total:
+                self._notice = (
+                    f"Preparing {self._last.label if self._last else 'source'} - "
+                    f"{min(100, done * 100 // total)}% read - Disconnect cancels."
+                )
         if self._preparing is not None and self._preparing.join(0):
             failure = self._preparing.failure
             self._preparing = None
@@ -257,15 +466,20 @@ class SourceController(QObject):
                 if not self._legacy_loaded:
                     self._notice = "Cancelled - previous readings remain available."
             elif failure is not None:
-                self._notice = (
-                    f"Could not open source: {failure.message}. Correct the file or retry."
+                hint = (
+                    "Check the port and retry."
+                    if failure.exception_type == "SerialPortError"
+                    else "Correct the file or retry."
                 )
+                self._notice = f"Could not open source: {failure.message}. {hint}"
             elif self._prepared:
                 self._next = self._prepared[0]
                 self._begin_release()
             self._prepared.clear()
         if self._releasing:
             if self.source is None or self.source.close(0):
+                if self.source is not None:
+                    self._record_final_health(self.source)
                 self.source = None
                 self._releasing = False
                 if self._next is not None and not self._closing:
@@ -290,9 +504,9 @@ class SourceController(QObject):
             and not self._releasing
             and not self._finished_rendered
         ):
-            self.session.ingest_source(self.source, limit=512)
+            observer = self.health.observe_events if self.health is not None else None
+            self.session.ingest_source(self.source, limit=512, observer=observer)
             snapshot = self.session.snapshot()
-            replay_snapshot = snapshot
             finished = self.source.join(0) and self.source.events.stats.buffered == 0
             if snapshot.revision != self._revision or finished:
                 self._revision = snapshot.revision
@@ -300,9 +514,24 @@ class SourceController(QObject):
                 self._render()
                 if finished and self.window.right_panel.time_plot.timer.isActive():
                     self.window.right_panel.time_plot.refresh()
+            replay_snapshot = self._view if self._view is not None else snapshot
+        self._update_replay(replay_snapshot)
+        self.window.analysis.set_source_health(self.health.report() if self.health else None)
+        self.recording.poll()
+        self._present()
+        if (
+            self._closing
+            and self.source is None
+            and self._preparing is None
+            and not self._releasing
+        ):
+            self.timer.stop()
+            self.window.close()
+
+    def _update_replay(self, snapshot: SessionSnapshot | None) -> None:
         self.replay.update(
             self.session,
-            snapshot=replay_snapshot,
+            snapshot=snapshot,
             live=self.source.capabilities.is_live if self.source is not None else None,
             ready=(
                 self.source is None or self._finished_rendered or self.source.capabilities.is_live
@@ -318,15 +547,55 @@ class SourceController(QObject):
             ),
             busy=self._preparing is not None or self._releasing or self._closing,
         )
-        self._present()
-        if (
-            self._closing
-            and self.source is None
-            and self._preparing is None
-            and not self._releasing
-        ):
-            self.timer.stop()
-            self.window.close()
+
+    def _refresh_view(self) -> None:
+        """Show the latest derived results, e.g. after evaluation was deferred."""
+        if self.session is not None:
+            self._render(force=True)
+            self._update_replay(self._view)
+
+    def _derived_changed(self) -> None:
+        if self.session is None:
+            return
+        selected = self.window.left_panel.signal_browser.selected_id
+        view = self._view
+        shown = (
+            next((d for d in view.schema.signals if d.identifier == selected), None)
+            if view is not None
+            else None
+        )
+        derived_ids = {d.output_id for d in self.window.analysis.derived.definitions}
+        if is_derived(shown) or selected in derived_ids:
+            # A changed expression must redraw the trace from scratch.
+            self.window.right_panel._reset_plot()
+        self._refresh_view()
+
+    def _augment(self, snapshot: SessionSnapshot, *, force: bool) -> SessionSnapshot:
+        """Add derived signals; keep work bounded while a source is still delivering."""
+        derived = self.window.analysis.derived
+        source = self.source
+        now = monotonic()
+        loading = source is not None and not source.capabilities.is_live
+        loading = loading and not self._finished_rendered
+        live = source is not None and source.capabilities.is_live
+        stale = not force and (loading or (live and now - self._derived_at < DERIVED_INTERVAL_S))
+        view = derived.augment(self.session, snapshot, reuse_stale=stale)
+        if not stale:
+            self._derived_at = now
+        elif live and derived.definitions and not self._derived_timer.isActive():
+            self._derived_timer.start()
+        return view
+
+    def _record_final_health(self, source: TelemetrySource) -> None:
+        """Keep the released source's last health so analysis sees it disconnected."""
+        session = self.session
+        if session is None or self._closing:
+            return
+        try:
+            session.ingest((), source_health={source.source_id: source.health()})
+        except ValueError:
+            return  # The session belongs to a different source (failed start).
+        self.window.analysis.set_snapshot(session, session.snapshot())
 
     def _present(self) -> None:
         picker = self.window.source_picker
@@ -348,10 +617,17 @@ class SourceController(QObject):
                 detail += " | Retry or choose another source."
             if health.dropped_records:
                 detail += f" | lost records: {health.dropped_records}"
+            if isinstance(source, SerialLiveSource):
+                detail += f" | {source.link_status().summary()}"
             if message:
                 detail += f" | {message}"
             message = detail
         picker.status.setText(message or "Idle - choose CSV or a fictional simulator.")
+        report = self.window.analysis.source_health
+        picker.show_health(
+            summary_text(report.health) if report else None,
+            report.health.status.value if report else "unknown",
+        )
 
     def select(self, index: int) -> None:
         self._selected = index
@@ -372,16 +648,19 @@ class SourceController(QObject):
     def _frames_changed(self) -> None:
         """Show the results of changed coordinate-frame transforms right away."""
         if self.session is not None:
-            self._render()
+            self._render(force=True)
 
-    def _render(self) -> None:
+    def _render(self, *, force: bool = False) -> None:
         if self.session is None:
             return
-        # Transformed signals are added beside the raw ones; raw records stay unchanged.
-        snapshot = self.window.analysis.frames.augment(self.session, self.session.snapshot())
+        # Transformed and derived signals are added beside the raw ones; raw
+        # records stay unchanged. Transforms come first so derived signals can
+        # use their results.
+        framed = self.window.analysis.frames.augment(self.session, self.session.snapshot())
+        snapshot = self._augment(framed, force=force)
         self._view = snapshot
         self.window.workspace_docks.update_snapshot(snapshot)
-        self.window.analysis.set_snapshot(self.session, snapshot)
+        self.window.analysis.set_snapshot(self.session, snapshot, log_path=self.log_path)
         descriptors = snapshot.schema.signals
         browser = self.window.left_panel.signal_browser
         previous_id = browser.selected_id

@@ -17,7 +17,7 @@ jobs:
   portable:
     name: Portable ZIP (windows-latest)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PYTHONFAULTHANDLER: "1"
     steps:
@@ -45,3 +45,39 @@ jobs:
             dist/portable/*.sha256
           retention-days: 14
           compression-level: 0
+      # The installer wraps the ZIP built above (issue #53, docs/windows-installer.md).
+      - name: Find Inno Setup, installing it if the runner lacks it
+        run: |
+          uv run --locked python scripts/build_installer.py --find-iscc
+          if ($LASTEXITCODE -ne 0) {
+            choco install innosetup --version 6.7.1 --no-progress --yes
+            uv run --locked python scripts/build_installer.py --find-iscc
+          }
+      - name: Build the installer
+        run: uv run --locked python scripts/build_installer.py dist/portable
+      - name: Build an older installer to test upgrades
+        run: >-
+          uv run --locked python scripts/build_installer.py dist/portable
+          --version 0.0.0 --compression none
+          --out build/installer-old --stage build/installer-old-stage
+      - name: Install, run, upgrade and uninstall silently
+        run: >-
+          uv run --locked python scripts/smoke_installer.py dist/installer
+          --older build/installer-old --keep-logs test-results/installer
+      - name: Upload the installer
+        if: ${{ !cancelled() && hashFiles('dist/installer/*.exe') != '' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: installer-windows-x64
+          path: |
+            dist/installer/*.exe
+            dist/installer/*.sha256
+          retention-days: 14
+          compression-level: 0
+      - name: Upload the installer logs
+        if: ${{ !cancelled() && hashFiles('test-results/installer/*') != '' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: installer-logs
+          path: test-results/installer/
+          retention-days: 7

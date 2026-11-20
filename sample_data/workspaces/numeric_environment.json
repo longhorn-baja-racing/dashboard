@@ -1,6 +1,6 @@
 {
   "format": "lbr-dashboard-workspace",
-  "version": 1,
+  "version": 2,
   "name": "Environment numeric example",
   "description": "Two numeric signals on separate axes plus their current values. Signal IDs are illustrative and match the column names of the generic environment fixture.",
   "widgets": [

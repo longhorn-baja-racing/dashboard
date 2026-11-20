@@ -22,12 +22,31 @@ Start the dashboard on Windows with `uv run --locked lbr-dashboard`. The
    `sample_data/sample_baja_log.csv` or your own file in that explicit preset.
    Loading happens on a worker. Disconnect cancels preparation. A failed open
    reports a reason and leaves the previous source and readings intact.
+6. Choose **CSV with column mapping...** for any other timestamped CSV. After
+   picking the file, a dialog shows its first rows and asks for the time
+   column and its unit (never guessed; a unit written in the header, such as
+   `timestamp_ms`, is pre-selected but editable) and for each other column's
+   signal name, unit and type, or to leave it out. Invalid rows and ambiguous
+   mappings are listed with their line numbers before anything is imported.
+   **Import** loads the file on a worker into the same kind of session as the
+   preset and the status reports skipped rows. **Cancel** keeps the current
+   session. See [csv-mapping.md](csv-mapping.md).
+7. Choose **Firmware log (.lbrlog)**, connect and select a session log from the
+   car's SD card (or the firmware's golden `session.lbr`). The status shows how
+   much of the file has been read; anything skipped or lost is reported once
+   the replay starts. See [Opening firmware session logs](lbrlog.md).
+8. Choose **USB serial (firmware live)** to watch the Central's live USB
+   stream. A port chooser with **Refresh ports** appears; with no port it
+   explains what to plug in and Connect stays disabled. The link is read-only.
+   While it runs, **Record** saves what arrives to an `.lbrlog` file. See
+   [Live USB serial source](serial-source.md) and
+   [Recording a live source](live-capture.md).
 
 The active identity, lifecycle state, loss count, error and adapter capabilities
 come from the #20 contract. Source seek and source rate buttons are disabled
 with explanatory tooltips when unsupported. They invoke only capabilities an
 adapter actually advertises. They are distinct from the session playback UI
-in #41. No USB device, serial port or physical sensor is assumed.
+in #41. Only the USB serial choice touches hardware, and only the port you pick.
 
 ## CSV preset and integration boundary
 
@@ -51,8 +70,8 @@ The table shows original integer nanoseconds and the plot uses seconds relative
 to the first reading when that signal's view was opened.
 The raw table is read-only; changing recorded measurements is not a source action.
 
-The arbitrary mapping workflow in #31 remains separate. This preset does not
-auto-detect unknown formats or devices. File > Open retains the legacy table
+Other CSV shapes use **CSV with column mapping...** (#31) instead; this preset
+does not auto-detect unknown formats or devices. File > Open retains the legacy table
 loader for compatibility; a successful legacy import releases the active source.
 Use the source picker for the common CSV/simulator session path.
 
@@ -71,8 +90,10 @@ cleanup is pending. It never starts the replacement or claims release until
 close succeeds. Python cannot forcibly release an uncooperative adapter.
 
 Run `uv run --locked pytest tests/ui/test_source_picker.py
-tests/importers/test_csv_source.py`. Tests exercise the real picker with CSV,
-both finite simulator families, live simulation, failures, cancellation, retry,
+tests/ui/test_csv_mapping_workflow.py tests/importers/test_csv_source.py`.
+Tests exercise the real picker with the CSV preset, mapped CSV files (BOM,
+quotes, unfamiliar time header, invalid rows, Cancel), both finite simulator
+families, live simulation, failures, cancellation, retry,
 unsupported/supported controls, and delayed cleanup. A negative control disables
 the production render binding and verifies that the ordinary workflow test fails
 because source samples did not reach the plot.

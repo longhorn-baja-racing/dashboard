@@ -1,132 +1,123 @@
 """Repeatable dashboard performance measurement (#27).
 
-    uv run --locked python scripts/benchmark.py                    # standard preset, 3 runs
+    uv run --locked python scripts/benchmark.py            # full mode, 3 runs
+    uv run --locked python scripts/benchmark.py --quick    # CI-sized, 2 runs, under a minute
+    uv run --locked python scripts/benchmark.py --ci       # --quick, fail only on gross regressions
     uv run --locked python scripts/benchmark.py --preset long --repeat 5 --onscreen
 
-Each run happens in a fresh process so startup and peak memory are measured
-cleanly. Results (median, min, max per metric, plus machine details) are
-printed, compared with the provisional budgets in ``BUDGETS`` and written as
-JSON to ``build/bench/``. ``--enforce`` exits 1 when a median misses a budget.
-See ``docs/performance.md``.
+Each run measures the lbr-csv session view and the generic session stack
+(``bench_generic``) in two fresh processes, so startup and peak memory are
+measured cleanly. Results (median, min, max and spread per metric, plus
+machine details) are printed, checked against ``BUDGETS`` and written as JSON
+to ``build/bench/``. ``--enforce`` exits 1 when a median misses its budget
+after applying ``--margin``. See ``docs/performance.md``.
 """
 
 from __future__ import annotations
 
 import argparse
-import ctypes
 import json
 import os
-import platform
 import statistics
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import bench_generic  # noqa: E402
 import make_bench_session  # noqa: E402
+from bench_system import machine, peak_memory_mb  # noqa: E402
 
 OUT = ROOT / "build" / "bench"
 PLOT_ONE = "corner_fl.imu_fl_accel_z"
 PLOT_SIX = [f"corner_fl.imu_fl_{kind}_{axis}" for kind in ("accel", "gyro") for axis in "xyz"]
 
-#: Provisional budgets, to be confirmed on the team's reference Windows laptop.
-#: (metric, comparison, limit). "min" means the value must be at least the limit.
-BUDGETS: dict[str, tuple[str, float]] = {
-    "startup_s": ("max", 3.0),
-    "import_rows_per_s": ("min", 150_000),
-    "plot_one_s": ("max", 0.5),
-    "plot_six_s": ("max", 1.0),
-    "readout_ms": ("max", 16.0),
-    "session_mb_per_million_rows": ("max", 400.0),
+
+@dataclass(frozen=True)
+class Budget:
+    """``max``: the median must not exceed ``limit``; ``min``: it must reach it."""
+
+    kind: str
+    limit: float
+    unit: str
+    why: str
+
+    def allowed(self, margin: float = 1.0) -> float:
+        """The limit loosened by ``margin`` (1 = the budget itself, 4 = CI)."""
+
+        return self.limit * margin if self.kind == "max" else self.limit / margin
+
+
+#: Every budget, in one place. They are provisional until measured on the
+#: reference Windows laptop; docs/performance.md explains each one.
+BUDGETS: dict[str, Budget] = {
+    # lbr-csv session view
+    "startup_s": Budget("max", 3.0, "s", "usable within a few seconds at the track"),
+    "import_rows_per_s": Budget("min", 150_000, "rows/s", "20 min full-rate export in < 1 min"),
+    "plot_one_s": Budget("max", 0.5, "s", "checking a signal feels immediate"),
+    "plot_six_s": Budget("max", 1.0, "s", "comparing a few signals stays fluid"),
+    "readout_ms": Budget("max", 16.0, "ms", "one 60 Hz frame while moving the cursor"),
+    "session_mb_per_million_rows": Budget("max", 400.0, "MB", "a 2 h export fits in 8 GB"),
+    # generic session stack: replay
+    "ingest_samples_per_s": Budget("min", 100_000, "samples/s", "20 min at 3492/s in < 45 s"),
+    "snapshot_ms": Budget("max", 50.0, "ms", "a snapshot per poll never stalls several frames"),
+    "range_ms": Budget("max", 1.0, "ms", "a 10 s window query is a fraction of a frame"),
+    "session_mb_per_million_samples": Budget("max", 600.0, "MB", "10 min fits in ~1.3 GB"),
+    "generic_peak_mb": Budget("max", 2000.0, "MB", "full workload fits an 8 GB laptop"),
+    # generic session stack: time plot and replay seek
+    "plot_full_ms": Budget("max", 250.0, "ms", "fitting the whole 1 kHz trace feels immediate"),
+    "plot_zoom_ms": Budget("max", 50.0, "ms", "pan and zoom on a 10 s window stay smooth"),
+    "seek_ms": Budget("max", 16.0, "ms", "a typical seek lands within one frame"),
+    "seek_p95_ms": Budget("max", 50.0, "ms", "dragging the replay slider never stutters"),
+    # generic session stack: sustained live ingest with bounded retention
+    "live_cpu_pct": Budget("max", 25.0, "% of a core", "live ingest leaves room to render"),
+    "live_poll_p95_ms": Budget("max", 10.0, "ms", "each 30 ms poll leaves time to draw"),
+    "live_rss_mb_per_min": Budget("max", 16.0, "MB/min", "memory stops growing once full"),
+}
+
+#: CI runners are shared and noisy, so CI only fails when a median misses its
+#: budget by this factor (4x slower, 4x lower throughput, 4x more memory).
+CI_MARGIN = 4.0
+
+
+@dataclass(frozen=True)
+class Mode:
+    preset: str
+    workload: str
+    repeat: int
+
+
+MODES = {
+    "quick": Mode("smoke", "quick", 2),
+    "full": Mode("standard", "full", 3),
 }
 
 
-def peak_memory_mb() -> float:
-    """Peak resident memory of this process in MB."""
+@dataclass(frozen=True)
+class Check:
+    metric: str
+    value: float | None
+    kind: str
+    limit: float
+    allowed: float
+    passed: bool
+    #: How far inside the allowed limit the median is, in percent of that
+    #: limit; negative means missed. ``None`` when the metric was not measured.
+    headroom_pct: float | None
 
-    if sys.platform == "win32":
-        from ctypes import wintypes
-
-        class Counters(ctypes.Structure):
-            _fields_ = [
-                ("cb", wintypes.DWORD),
-                ("PageFaultCount", wintypes.DWORD),
-                ("PeakWorkingSetSize", ctypes.c_size_t),
-                ("WorkingSetSize", ctypes.c_size_t),
-                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                ("PagefileUsage", ctypes.c_size_t),
-                ("PeakPagefileUsage", ctypes.c_size_t),
-            ]
-
-        counters = Counters()
-        counters.cb = ctypes.sizeof(Counters)
-        windll: Any = getattr(ctypes, "windll")
-        # Declare signatures: without them the GetCurrentProcess pseudo-handle
-        # is truncated to 32 bits and the call fails, reporting 0 bytes.
-        current = windll.kernel32.GetCurrentProcess
-        current.restype = wintypes.HANDLE
-        query = windll.psapi.GetProcessMemoryInfo
-        query.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
-        query.restype = wintypes.BOOL
-        if not query(current(), ctypes.byref(counters), counters.cb):
-            raise OSError("GetProcessMemoryInfo failed")
-        return counters.PeakWorkingSetSize / 1e6
-    import resource
-
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return peak / 1e6 if sys.platform == "darwin" else peak / 1e3
-
-
-def total_memory_gb() -> float | None:
-    try:
-        if sys.platform == "win32":
-
-            class Status(ctypes.Structure):
-                _fields_ = [
-                    ("dwLength", ctypes.c_ulong),
-                    ("dwMemoryLoad", ctypes.c_ulong),
-                    ("ullTotalPhys", ctypes.c_ulonglong),
-                    ("rest", ctypes.c_ulonglong * 6),
-                ]
-
-            status = Status()
-            status.dwLength = ctypes.sizeof(Status)
-            windll: Any = getattr(ctypes, "windll")
-            query = windll.kernel32.GlobalMemoryStatusEx
-            query.argtypes = [ctypes.POINTER(Status)]
-            query.restype = ctypes.c_int
-            if not query(ctypes.byref(status)):
-                return None
-            return status.ullTotalPhys / 1e9
-        if sys.platform == "darwin":
-            out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True)
-            return int(out.stdout) / 1e9
-        with open("/proc/meminfo", encoding="ascii") as handle:
-            return int(handle.readline().split()[1]) / 1e6
-    except (OSError, ValueError, AttributeError):
-        return None
-
-
-def machine() -> dict[str, object]:
-    return {
-        "platform": platform.platform(),
-        "processor": platform.processor() or platform.machine(),
-        "cpu_count": os.cpu_count(),
-        "memory_gb": total_memory_gb(),
-        "python": platform.python_version(),
-    }
+    def describe(self) -> str:
+        if self.value is None:
+            return f"{self.metric}: not measured"
+        return f"{self.metric}: median {self.value:.4g} vs {self.kind} {self.allowed:g}"
 
 
 def measure(path: Path) -> dict[str, float]:
-    """One run in this process. Imports Qt only here so startup is included."""
+    """One lbr-csv run in this process. Imports Qt only here so startup is included."""
 
     started = time.perf_counter()
     from lbr_dashboard.app import create_application, create_main_window
@@ -198,97 +189,188 @@ def fixture(preset: str, out: Path) -> Path:
     return path
 
 
-def summarize(runs: list[dict[str, float]]) -> dict[str, dict[str, float]]:
-    return {
-        key: {
-            "median": statistics.median(run[key] for run in runs),
-            "min": min(run[key] for run in runs),
-            "max": max(run[key] for run in runs),
+def summarize(runs: Sequence[Mapping[str, float]]) -> dict[str, dict[str, float]]:
+    """Median, min, max, sample standard deviation and spread (max - min) / median."""
+
+    summary = {}
+    for key in runs[0]:
+        values = [run[key] for run in runs]
+        median = statistics.median(values)
+        summary[key] = {
+            "median": median,
+            "min": min(values),
+            "max": max(values),
+            "stdev": statistics.stdev(values) if len(values) > 1 else 0.0,
+            "spread_pct": 100 * (max(values) - min(values)) / median if median else 0.0,
         }
-        for key in runs[0]
-    }
+    return summary
 
 
-def check_budgets(summary: dict[str, dict[str, float]]) -> list[str]:
-    misses = []
-    for key, (kind, limit) in BUDGETS.items():
-        value = summary[key]["median"]
-        if (kind == "max" and value > limit) or (kind == "min" and value < limit):
-            misses.append(f"{key}: median {value:.3g} vs {kind} {limit:g}")
-    return misses
+def check_budgets(
+    summary: Mapping[str, Mapping[str, float]],
+    margin: float = 1.0,
+    budgets: Mapping[str, Budget] | None = None,
+) -> list[Check]:
+    """Compare each budgeted median with its limit loosened by ``margin``."""
 
-
-def report(preset: str, summary: dict[str, dict[str, float]], runs: int) -> str:
-    lines = [f"preset {preset}, {int(summary['rows']['median'])} rows, {runs} run(s)"]
-    for key, values in summary.items():
-        if key == "rows":
+    if margin < 1:
+        raise ValueError("margin must be at least 1")
+    checks = []
+    for key, budget in (BUDGETS if budgets is None else budgets).items():
+        allowed = budget.allowed(margin)
+        if key not in summary:
+            checks.append(Check(key, None, budget.kind, budget.limit, allowed, False, None))
             continue
-        budget = BUDGETS.get(key)
-        note = f"  (budget {budget[0]} {budget[1]:g})" if budget else ""
+        value = summary[key]["median"]
+        if budget.kind == "max":
+            passed = value <= allowed
+            headroom = 100 * (allowed - value) / allowed
+        else:
+            passed = value >= allowed
+            headroom = 100 * (value - allowed) / allowed
+        checks.append(Check(key, value, budget.kind, budget.limit, allowed, passed, headroom))
+    return checks
+
+
+def report(label: str, summary: Mapping[str, Mapping[str, float]], checks: list[Check]) -> str:
+    by_metric = {check.metric: check for check in checks}
+    lines = [f"{label}: {len(summary)} metrics"]
+    for key, values in summary.items():
+        check = by_metric.get(key)
+        note = ""
+        if check is not None:
+            verdict = "PASS" if check.passed else "FAIL"
+            note = f"  {verdict} {check.kind} {check.allowed:g} ({check.headroom_pct:+.0f}%)"
         lines.append(
-            f"  {key:26} median {values['median']:12.4g}   "
-            f"min {values['min']:10.4g}   max {values['max']:10.4g}{note}"
+            f"  {key:32} median {values['median']:11.4g}  "
+            f"min {values['min']:10.4g}  max {values['max']:10.4g}  "
+            f"spread {values['spread_pct']:5.1f}%{note}"
         )
+    for check in checks:
+        if check.value is None:
+            lines.append(f"  {check.metric:32} not measured  FAIL")
     return "\n".join(lines)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def run_child(args: list[str], env: Mapping[str, str]) -> dict[str, float]:
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), *args],
+        capture_output=True,
+        text=True,
+        env=dict(env),
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(f"benchmark child {args} failed:\n{result.stdout}{result.stderr}")
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Measure dashboard performance.")
-    parser.add_argument("--preset", choices=sorted(make_bench_session.PRESETS), default="standard")
-    parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument("--quick", action="store_true", help="CI-sized workloads, 2 runs")
+    parser.add_argument(
+        "--ci",
+        action="store_true",
+        help=f"--quick --enforce --margin {CI_MARGIN:g}: fail only on gross regressions",
+    )
+    parser.add_argument("--preset", choices=sorted(make_bench_session.PRESETS))
+    parser.add_argument("--workload", choices=sorted(bench_generic.WORKLOADS))
+    parser.add_argument("--repeat", type=int)
+    parser.add_argument("--margin", type=float, help="loosen every budget by this factor")
     parser.add_argument("--onscreen", action="store_true", help="render on the real display")
     parser.add_argument("--enforce", action="store_true", help="exit 1 if a budget is missed")
     parser.add_argument("--out", type=Path, default=OUT, help="folder for fixtures and results")
-    parser.add_argument("--child", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--child-lbr", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--child-generic", help=argparse.SUPPRESS)
     options = parser.parse_args(argv)
+    if options.ci:
+        options.quick = options.enforce = True
+        options.margin = CI_MARGIN if options.margin is None else options.margin
+    mode = MODES["quick" if options.quick else "full"]
+    name = "quick" if options.quick else "full"
+    if options.preset is not None or options.workload is not None:
+        name = f"{options.preset or mode.preset}-{options.workload or mode.workload}"
+    options.name = name
+    options.preset = options.preset or mode.preset
+    options.workload = options.workload or mode.workload
+    options.repeat = mode.repeat if options.repeat is None else options.repeat
+    options.margin = 1.0 if options.margin is None else options.margin
+    if options.repeat < 1:
+        parser.error("--repeat must be at least 1")
+    if options.margin < 1:
+        parser.error("--margin must be at least 1")
+    return options
 
-    if options.child is not None:
-        print(json.dumps(measure(options.child)))
+
+def main(argv: Sequence[str] | None = None) -> int:
+    options = parse(argv)
+    if options.child_lbr is not None:
+        print(json.dumps(measure(options.child_lbr)))
+        return 0
+    if options.child_generic is not None:
+        print(json.dumps(bench_generic.measure(options.child_generic, options.out)))
         return 0
 
+    began = time.perf_counter()
     path = fixture(options.preset, options.out)
     env = dict(os.environ)
     if not options.onscreen:
         env["QT_QPA_PLATFORM"] = "offscreen"
     runs = []
-    for index in range(options.repeat):
-        result = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), "--child", str(path)],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=False,
-        )
-        if result.returncode:
-            print(result.stdout + result.stderr, file=sys.stderr)
-            return result.returncode
-        runs.append(json.loads(result.stdout.strip().splitlines()[-1]))
-        print(f"run {index + 1}/{options.repeat} done", flush=True)
+    try:
+        for index in range(options.repeat):
+            run = run_child(["--child-lbr", str(path)], env)
+            run.update(
+                run_child(
+                    ["--child-generic", options.workload, "--out", str(options.out)],
+                    env,
+                )
+            )
+            runs.append(run)
+            print(f"run {index + 1}/{options.repeat} done", flush=True)
+    except RuntimeError as error:
+        print(error, file=sys.stderr)
+        return 2
 
     summary = summarize(runs)
-    misses = check_budgets(summary)
-    print(report(options.preset, summary, len(runs)))
-    print("budgets: all met" if not misses else "budgets missed:\n  " + "\n  ".join(misses))
+    checks = check_budgets(summary, options.margin)
+    missed = [check.describe() for check in checks if not check.passed]
+    label = (
+        f"{options.name}: lbr-csv preset {options.preset}, generic workload "
+        f"{options.workload}, {len(runs)} run(s), margin {options.margin:g}"
+    )
+    print(report(label, summary, checks))
+    print("budgets: all met" if not missed else "budgets missed:\n  " + "\n  ".join(missed))
     options.out.mkdir(parents=True, exist_ok=True)
-    result_path = options.out / f"results-{options.preset}.json"
+    result_path = options.out / f"results-{options.name}.json"
     result_path.write_text(
         json.dumps(
             {
+                "mode": options.name,
                 "preset": options.preset,
+                "lbr_seconds": make_bench_session.PRESETS[options.preset],
+                "workload": bench_generic.describe(options.workload),
                 "onscreen": options.onscreen,
+                "margin": options.margin,
                 "machine": machine(),
-                "budgets": BUDGETS,
+                "budgets": {
+                    key: {**asdict(budget), "allowed": budget.allowed(options.margin)}
+                    for key, budget in BUDGETS.items()
+                },
                 "summary": summary,
+                "checks": [asdict(check) for check in checks],
                 "runs": runs,
-                "missed": misses,
+                "missed": missed,
+                "passed": not missed,
+                "elapsed_s": time.perf_counter() - began,
             },
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
-    print(f"wrote {result_path}")
-    return 1 if options.enforce and misses else 0
+    print(f"wrote {result_path} in {time.perf_counter() - began:.0f} s")
+    return 1 if options.enforce and missed else 0
 
 
 if __name__ == "__main__":
