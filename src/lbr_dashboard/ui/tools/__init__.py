@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..analysis import AnalysisTool
+from .histogram import TOOL as HISTOGRAM
 from .statistics import TOOL as STATISTICS
 
-TOOLS: tuple[AnalysisTool, ...] = (STATISTICS,)
+TOOLS: tuple[AnalysisTool, ...] = (STATISTICS, HISTOGRAM)
