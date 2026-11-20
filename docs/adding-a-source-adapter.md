@@ -89,6 +89,9 @@ Before adding a format or transport:
 - **Serial or CAN** — Require an explicit port or channel and a documented
   protocol. Specify frame boundaries, timeouts, disconnect behavior and loss
   reporting. The telemetry path is read-only and sends no vehicle commands.
+  The [USB serial source](serial-source.md) is a worked example: port access
+  behind a read-only interface, a fake serial line in the tests, and the
+  firmware's golden capture as the oracle.
 - **IMU or other sensor** — Document units, axes, coordinate frame and
   calibration in the mapping. Add fixtures for real zeros and unavailable
   readings. An undocumented device needs its own confirmed mapping before it

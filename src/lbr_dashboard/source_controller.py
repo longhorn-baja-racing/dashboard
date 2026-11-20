@@ -22,8 +22,18 @@ from .core import (
 )
 from .importers.csv_source import prepare_csv
 from .importers.lbrlog_source import prepare_lbrlog
+from .importers.serial_source import (
+    DISCOVERY_S,
+    PortOpener,
+    SerialLiveSource,
+    SerialPortInfo,
+    prepare_serial,
+)
+from .recording_controller import RecordingController
 from .replay_controller import ReplayController
+from .serial_ports import list_serial_ports, open_serial_port
 from .ui.main_window import MainWindow
+from .ui.source_picker import SERIAL_KEY
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,10 @@ class SourceController(QObject):
         self._finished_rendered = False
         self._legacy_loaded = False
         self.replay = ReplayController(window)
+        #: Serial port access; tests replace these with in-memory fakes.
+        self.list_serial_ports: Callable[[], list[SerialPortInfo]] = list_serial_ports
+        self.open_serial_port: PortOpener = open_serial_port
+        self.serial_discovery_s = DISCOVERY_S
         for family in ("process", "motion", "live"):
 
             def prepare(token, family=family):
@@ -99,6 +113,10 @@ class SourceController(QObject):
                 _prepare_lbrlog,
             )
         )
+        # Prepared per port by open_serial(); the picker shows the port chooser for it.
+        window.source_picker.choices.addItem("USB serial (firmware live)", SERIAL_KEY)
+        self.recording = RecordingController(self)
+        window.source_picker.ports_refresh_requested.connect(self.refresh_ports)
         window.source_picker.connect_requested.connect(self.choose)
         window.source_picker.disconnect_requested.connect(self.disconnect)
         window.source_picker.retry_requested.connect(self.retry)
@@ -112,7 +130,7 @@ class SourceController(QObject):
         self.timer.start()
 
     def register(self, option: SourceOption) -> None:
-        if option.key in self._options:
+        if option.key in self._options or option.key == SERIAL_KEY:
             raise ValueError(f"Source option already registered: {option.key}")
         self._options[option.key] = option
         picker = self.window.source_picker
@@ -127,8 +145,42 @@ class SourceController(QObject):
         if picker.choices.findData(option.key) < 0:
             picker.choices.addItem(option.label, option.key)
 
+    @property
+    def busy(self) -> bool:
+        return self._preparing is not None or self._releasing or self._closing
+
+    def refresh_ports(self) -> None:
+        picker = self.window.source_picker
+        try:
+            ports = self.list_serial_ports()
+        except Exception as error:
+            picker.set_ports([], f"Could not list serial ports: {error}")
+            return
+        picker.set_ports([(port.label, port.name) for port in ports])
+
+    def open_serial(self, port: str) -> None:
+        """Connect to the firmware's live stream on ``port`` (read-only)."""
+
+        opener = self.open_serial_port
+        discovery = self.serial_discovery_s
+
+        def prepare(token: CancellationToken) -> Callable[[], TelemetrySource]:
+            return prepare_serial(port, opener, token, discovery_s=discovery)
+
+        self.request(SourceOption(SERIAL_KEY, f"USB serial {port}", prepare))
+
     def choose(self, key: str) -> None:
-        if key == "csv":
+        if key == SERIAL_KEY:
+            port = self.window.source_picker.selected_port()
+            if port is None:
+                self.refresh_ports()
+                port = self.window.source_picker.selected_port()
+            if port is None:
+                self._notice = "No serial port is selected. Connect the device and refresh."
+                self._present()
+            else:
+                self.open_serial(port)
+        elif key == "csv":
             file_path, _ = QFileDialog.getOpenFileName(
                 self.window, "Open timestamp_ms CSV", "", "CSV files (*.csv)"
             )
@@ -246,6 +298,7 @@ class SourceController(QObject):
     def _begin_release(self) -> None:
         if self._releasing:
             return
+        self.recording.stop("the source was disconnected")
         self.replay.set_busy()
         self._releasing = True
         self._release_started = monotonic()
@@ -317,9 +370,12 @@ class SourceController(QObject):
                 if not self._legacy_loaded:
                     self._notice = "Cancelled - previous readings remain available."
             elif failure is not None:
-                self._notice = (
-                    f"Could not open source: {failure.message}. Correct the file or retry."
+                hint = (
+                    "Check the port and retry."
+                    if failure.exception_type == "SerialPortError"
+                    else "Correct the file or retry."
                 )
+                self._notice = f"Could not open source: {failure.message}. {hint}"
             elif self._prepared:
                 self._next = self._prepared[0]
                 self._begin_release()
@@ -378,6 +434,7 @@ class SourceController(QObject):
             ),
             busy=self._preparing is not None or self._releasing or self._closing,
         )
+        self.recording.poll()
         self._present()
         if (
             self._closing
@@ -408,6 +465,8 @@ class SourceController(QObject):
                 detail += " | Retry or choose another source."
             if health.dropped_records:
                 detail += f" | lost records: {health.dropped_records}"
+            if isinstance(source, SerialLiveSource):
+                detail += f" | {source.link_status().summary()}"
             if message:
                 detail += f" | {message}"
             message = detail

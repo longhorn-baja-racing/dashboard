@@ -78,7 +78,9 @@ These come from the protocol specification:
   with the same channel IDs, for example `driver_input.brake_pedal`,
   `central.health.uptime_ms` and `stress.stress_3.node-clock`. Logs longer
   than the replay limit still go through this CSV export.
-- Live USB or WiFi streams (#33).
+- Live streams in this session view. The live USB stream is a source of its own
+  (**USB serial (firmware live)**, [serial-source.md](serial-source.md)); WiFi
+  and LoRa links are not read yet.
 - Using `catalog.json` for value types, descriptions and event code names in
   this view. The CSV already carries names and units; the binary log reader
   uses the catalog.
