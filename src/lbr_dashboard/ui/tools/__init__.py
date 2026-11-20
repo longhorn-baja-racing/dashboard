@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..analysis import AnalysisTool
+from .export import TOOL as EXPORT
 from .statistics import TOOL as STATISTICS
 
-TOOLS: tuple[AnalysisTool, ...] = (STATISTICS,)
+TOOLS: tuple[AnalysisTool, ...] = (STATISTICS, EXPORT)

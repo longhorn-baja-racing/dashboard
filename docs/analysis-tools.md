@@ -39,8 +39,12 @@ that is no longer loaded.
 
 The dock is created the first time the menu entry is used and reused after that.
 
+The Analysis menu also has **Save main plot as PNG...**, which writes the main
+plot with its axes, title and a legend (see [export.md](export.md)).
+
 ## Tools
 
 | Menu entry | Module | Issue |
 | --- | --- | --- |
 | Statistics | `ui/tools/statistics.py` | #43 |
+| Export | `ui/tools/export.py` (raw CSV, see [export.md](export.md)) | #69 |
