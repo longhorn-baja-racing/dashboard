@@ -277,7 +277,8 @@ def test_augment_adds_rotated_signals_and_keeps_raw_records() -> None:
         record.sequence for record in snapshot.series["bench.accel"]
     ]
     # Rounding residue such as cos(90 deg) is written as an exact zero.
-    assert output[0].sample.value == (0.0, 1.0, 9.81)
+    assert output[0].sample.value[0] == 0.0
+    assert close(output[0].sample.value, (0.0, 1.0, 9.81))
     assert not output[1].sample.available and output[1].sample.value is None
     assert output[1].sample.quality == "SENSOR_FAULT"
     assert close(output[2].sample.value, (-2.0, 0.0, 0.0))

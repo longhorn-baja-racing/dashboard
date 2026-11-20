@@ -272,7 +272,10 @@ class FramesTool(QWidget):
         lines = [
             f"Transform '{draft.name}': frame '{draft.source_frame}' -> '{draft.target_frame}'",
             f"Rotation angle {rotation.angle_degrees():.4g} deg; v_target = R v_source with R =",
-            *("  [" + ", ".join(f"{value: .4f}" for value in row) + "]" for row in matrix),
+            *(
+                "  [" + ", ".join(f"{round(value, 4) + 0.0: .4f}" for value in row) + "]"
+                for row in matrix
+            ),
         ]
         items = plan(raw, (draft,))
         snapshot = self.context.snapshot
