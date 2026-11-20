@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -26,6 +26,9 @@ SYMBOL_LIMIT = 5_000
 
 class RightPanel(QWidget):
     """Display a selected column as a plot and retain the CSV table view."""
+
+    #: Emitted after the plot is cleared, so items added on top of it can go too.
+    plot_reset = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -97,6 +100,7 @@ class RightPanel(QWidget):
         self.plot_widget.clear()
         self.plot_widget.enableAutoRange()
         self.plot_widget.setTitle("Select a column to plot", color=self._text_color)
+        self.plot_reset.emit()
 
     def plot_column(
         self,

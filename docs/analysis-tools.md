@@ -15,6 +15,10 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `log_path` | the file the session was read from, or None (simulators) | `snapshot_changed` |
+| `plot` / `plot_origin_ns` | the main time plot and its x origin (x is seconds since it) | `plot_changed` |
+| `plot_signal_id` | the signal the main time plot shows | `plot_changed` |
+| `following_live` | true while the replay bar follows live data | `cursor_changed` |
 
 Helpers:
 
@@ -22,6 +26,10 @@ Helpers:
   numeric signal. Unavailable readings are `None`, never zero. With an interval
   only the records inside the closed range are returned.
 - `reading_at(signal_id, time_ns)` returns the last reading at or before a time.
+- `request_seek(time_ns)` asks the replay clock to pause and move its cursor to
+  a session time; `cursor_ns` changes when it did.
+- `plot_changed` is emitted whenever the main plot is attached again, including
+  after it was cleared, so a tool can redraw its items on it.
 - `style_plot(plot_widget)` colors a tool's PyQtGraph plot for the current theme
   and again after every theme change, until the plot is deleted.
 

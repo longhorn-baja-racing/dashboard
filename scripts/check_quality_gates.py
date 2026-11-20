@@ -53,6 +53,7 @@ def copy_project(directory: Path) -> None:
         "pyproject.toml",
         "uv.lock",
         "README.md",
+        "CHANGELOG.md",
         ".python-version",
         "LICENSE",
         "Makefile",

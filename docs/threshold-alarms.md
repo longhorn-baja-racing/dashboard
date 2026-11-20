@@ -7,7 +7,8 @@ passes that signal's samples.
 
 Evaluation is read-only. It never sends commands to the vehicle or any device,
 never writes files, and keeps no state between calls. The output is a list of
-state changes that a display can show.
+state changes that a display can show. In the app, rules are edited and shown
+with **Analysis > Thresholds**; see [Thresholds tool](#thresholds-tool).
 
 ## Inputs
 
@@ -174,10 +175,124 @@ Unknown fields are rejected rather than ignored, so a misspelled field (for
 example `hysterisis`) cannot silently fall back to a default. A new field
 needs a new format version.
 
+## Thresholds tool
+
+**Analysis > Thresholds** opens a dock (`lbr_dashboard/ui/tools/thresholds.py`)
+that edits rules and evaluates them on the loaded session. It only reads the
+shared session snapshot: it never sends anything to a source or vehicle.
+
+### Editing rules
+
+The editor on the right of the dock has one field per rule setting:
+
+| Field | Rule field |
+| --- | --- |
+| Signal | `signal_id`; only scalar numeric signals of the session are offered |
+| Comparison | `comparison` (`above`: alarm when value > level; `below`: value < level) |
+| Level | `level`, in the signal's unit |
+| Hysteresis | `hysteresis`; the computed clear level is shown below it |
+| Debounce | `debounce_ns`, entered in seconds |
+| Validity window | `stale_after_ns`, entered in seconds; `off` (0) disables staleness |
+| Severity | `severity` |
+| Name | `label`, shown in the list |
+
+**Add rule** creates a rule from the editor. Selecting a rule in the list loads
+it into the editor; **Update rule** replaces it and **Remove rule** deletes it.
+The rule's `unit` is copied from the signal's unit. While no rule is selected
+the editor follows the signal selected in the signal browser.
+
+### States
+
+Each rule is shown with one of four states. The state is spelled out in the
+first column with a text marker and a standard icon; the cell color only
+repeats it:
+
+| Marker | State | Meaning |
+| --- | --- | --- |
+| `[ok]` | Normal | the last valid value is inside the limit |
+| `[!]` | ACTIVE | the alarm condition holds; the text also says whether it is acknowledged |
+| `[?]` | Unknown | missing value, no data yet, signal absent or not numeric, or unit mismatch |
+| `[~]` | Stale | no sample within the validity window |
+
+**Since** gives the session time of the transition that started the state, and
+**Details** explains it (the value that crossed, `missing value`, or the time
+of the last sample before the data went stale). A rule whose signal is missing
+from the session, is not numeric, or whose saved unit differs from the
+signal's unit is Unknown, never Normal.
+
+### Replay and live
+
+Rules are evaluated over the whole snapshot with `end_ns` set to the newest
+sample in the session, then looked up with `state_at`:
+
+- **Replay:** at the replay cursor. Seeking forward or backward gives the same
+  state as playing to that time.
+- **Live:** while the replay bar follows live data, at the newest sample in the
+  session; a signal that stops reporting while others continue goes Stale. A
+  paused live stream is evaluated at the cursor, like replay.
+
+The line above the list says which time is used.
+
+### Acknowledgement
+
+Select an ACTIVE rule and click **Acknowledge**. The acknowledgement belongs to
+that activation (the rule ID and its start time): seeking back into it shows it
+acknowledged again, and a later activation, including one after a brief
+Unknown, needs its own acknowledgement. Editing or removing a rule, importing
+rules, or loading another session clears acknowledgements; they are not saved.
+
+### Lines on the main plot
+
+When the main time plot shows a signal that has rules, each rule's level is
+drawn as a horizontal dashed line in the severity color (info blue, warning
+amber, critical red), and its clear level as a dotted line when it has
+hysteresis. Hovering a line names the rule. The lines are drawn again whenever
+the plot is redrawn, for example after selecting another signal and coming
+back.
+
+### Import, export and configuration
+
+**Export...** writes all rules to a JSON file in the format above;
+**Import...** reads such a file and replaces the current rules. An invalid file
+is rejected with its error message (for example `rules[0].levle: unknown
+field`) and the current rules are kept.
+
+`ThresholdsTool.configuration()` returns the same document as a JSON object,
+and `restore_configuration(config)` restores it (raising `ValueError` when it
+is invalid), so a workspace can store the rules.
+
+### Run it on Windows
+
+From the repository folder in PowerShell:
+
+```powershell
+uv sync --locked --extra dev
+uv run --locked lbr-dashboard
+```
+
+1. In **Telemetry source**, choose **Simulator - process (finite)** and click
+   **Open CSV / Connect**. Select `process.temperature` in the signal browser.
+2. Open **Analysis > Thresholds**. With Signal set to
+   `temperature (process.temperature)`, choose **Above**, level `20.5`,
+   hysteresis `1`, and click **Add rule**. The clear level reads
+   `clears below 19.5` followed by the signal's unit.
+3. The main plot shows a dashed line at 20.5 and a dotted line at 19.5.
+4. Move the replay slider. The temperature is about 20.07, 21.00, 18.93 and
+   19.99 at 0, 1, 2 and 3 s, so the rule is Normal since 0.000 s before 1 s,
+   ACTIVE since 1.000 s from 1 s, and Normal since 2.000 s from 2 s.
+5. Seek to about 1.5 s, select the rule and click **Acknowledge**. The state
+   reads `[!] ACTIVE - acknowledged`. Seek past 2 s and back: it is still
+   acknowledged.
+6. Add a rule on `process.pressure`, **Above** `6` with a validity window of
+   `0.015` s. Around 0.21 s it is Stale (records 200 to 240 ms are lost), and
+   from 0.5 s to 0.54 s it is Unknown (unavailable readings).
+7. Click **Export...**, save `thresholds.json`, remove the rules, and use
+   **Import...** to load them again.
+8. Choose **Simulator - process (live)** and connect: with the replay bar
+   following live, the line above the list reads `Following live data`.
+
 ## Not yet included
 
-- Display widgets and wiring into the main window.
-- Reading samples from the shared session and clock once those exist.
+- Storing rule files and acknowledgements with a saved session or workspace.
 - Source-aware freshness from source health.
-- Storing rule files and acknowledgements with a saved session.
 - Latching and audio.
