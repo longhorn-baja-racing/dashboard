@@ -22,6 +22,8 @@ Helpers:
   numeric signal. Unavailable readings are `None`, never zero. With an interval
   only the records inside the closed range are returned.
 - `reading_at(signal_id, time_ns)` returns the last reading at or before a time.
+- `style_plot(plot_widget)` colors a tool's PyQtGraph plot for the current theme
+  and again after every theme change, until the plot is deleted.
 
 A legacy table import clears the context, so no tool keeps showing a session
 that is no longer loaded.

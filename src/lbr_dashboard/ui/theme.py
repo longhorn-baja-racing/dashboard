@@ -76,3 +76,4 @@ def apply_theme(window: MainWindow, theme: str) -> None:
     plot_text = palette.color(QPalette.ColorRole.Text).name()
     window.right_panel.set_theme_colors(base, plot_text)
     window.workspace_docks.set_plot_colors(base, plot_text)
+    window.analysis.set_plot_colors(base, plot_text)

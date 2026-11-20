@@ -166,3 +166,20 @@ def test_legacy_table_clears_the_session_interval(demo):
     assert window.analysis.interval is None and window.analysis.bounds is None
     assert window.analysis_docks.region is None
     assert not window.analysis_docks.select_action.isEnabled()
+
+
+def test_tool_plots_follow_theme_changes_and_are_released_with_their_widget(qtbot):
+    import pyqtgraph as pg
+
+    from lbr_dashboard.ui.analysis import AnalysisContext
+
+    context = AnalysisContext()
+    plot = pg.PlotWidget()
+    qtbot.addWidget(plot)
+    context.style_plot(plot)
+    context.set_plot_colors("#ffffff", "#101010")
+    assert plot.backgroundBrush().color().name() == "#ffffff"
+    assert plot.getPlotItem().getAxis("left").textPen().color().name() == "#101010"
+    plot.deleteLater()
+    qtbot.waitUntil(lambda: context.receivers("2theme_changed()") == 0)
+    context.set_plot_colors("#000000", "#eeeeee")

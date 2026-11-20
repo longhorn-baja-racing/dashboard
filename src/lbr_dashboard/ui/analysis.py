@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
 from ..core import SessionSnapshot, SignalDescriptor
 from ..core.interval import IntervalSelection, TimeInterval
 from .interval_region import IntervalRegion, PlotTimeScale
+from .plot_style import apply_plot_colors
 
 
 def is_numeric(descriptor: SignalDescriptor | None) -> bool:
@@ -35,6 +36,7 @@ class AnalysisContext(QObject):
     signal_changed = Signal()
     cursor_changed = Signal()
     interval_changed = Signal()
+    theme_changed = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -43,6 +45,7 @@ class AnalysisContext(QObject):
         self.selected_id: str | None = None
         self.cursor_ns: int | None = None
         self.selection = IntervalSelection()
+        self.plot_colors = ("#202020", "#eeeeee")
         self._descriptors: dict[str, SignalDescriptor] = {}
         self.selection.subscribe(lambda _interval: self.interval_changed.emit())
 
@@ -90,6 +93,21 @@ class AnalysisContext(QObject):
             self.cursor_ns = time_ns
             self.cursor_changed.emit()
 
+    def set_plot_colors(self, background: str, text: str) -> None:
+        """Record the theme's plot colors and restyle every tool plot."""
+
+        if (background, text) != self.plot_colors:
+            self.plot_colors = (background, text)
+            self.theme_changed.emit()
+
+    def style_plot(self, widget: pg.PlotWidget) -> None:
+        """Color ``widget`` for the current theme now and after every theme change."""
+
+        styler = _PlotStyler(widget, self)
+        styler.apply()
+        # The styler is a child of the plot, so Qt drops this connection with it.
+        self.theme_changed.connect(styler.apply)
+
     def clear(self) -> None:
         """Forget the session, e.g. when a legacy table replaces it."""
 
@@ -131,6 +149,16 @@ class AnalysisContext(QObject):
             return [], []
         sample = record.sample
         return [sample.timestamp_ns], [_as_float(sample.value) if sample.available else None]
+
+
+class _PlotStyler(QObject):
+    def __init__(self, widget: pg.PlotWidget, context: AnalysisContext) -> None:
+        super().__init__(widget)
+        self.widget = widget
+        self.context = context
+
+    def apply(self) -> None:
+        apply_plot_colors(self.widget, *self.context.plot_colors)
 
 
 def _as_float(value: object) -> float | None:
