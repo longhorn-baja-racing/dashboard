@@ -212,6 +212,7 @@ class SourceController(QObject):
             self.source.start()
             self._legacy_loaded = False
             self._label = self._last.label if self._last else self.source.source_id
+            self.window.display_telemetry_source()
             self._notice = ""
             self._revision = -1
             self._displayed_schema = None

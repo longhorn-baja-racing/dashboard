@@ -331,6 +331,15 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"LBR Dashboard - {file_name}")
 
+    def display_telemetry_source(self) -> None:
+        """Return to the generic telemetry view after a source starts."""
+        self.pages.setCurrentIndex(0)
+        self.statusBar().clearMessage()
+        self.setWindowTitle("LBR Dashboard")
+        self.source_label.setText("Readings from the telemetry source selected above.")
+        if self.import_state != "loading":
+            self.set_import_state("ready", "Browse a signal to inspect its readings and replay.")
+
     def import_progress(self, file_name: str) -> ImportProgress:
         """Progress for a long import; the caller closes it when done."""
 
