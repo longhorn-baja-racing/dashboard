@@ -33,12 +33,18 @@ Start the dashboard on Windows with `uv run --locked lbr-dashboard`. The
    car's SD card (or the firmware's golden `session.lbr`). The status shows how
    much of the file has been read; anything skipped or lost is reported once
    the replay starts. See [Opening firmware session logs](lbrlog.md).
+8. Choose **USB serial (firmware live)** to watch the Central's live USB
+   stream. A port chooser with **Refresh ports** appears; with no port it
+   explains what to plug in and Connect stays disabled. The link is read-only.
+   While it runs, **Record** saves what arrives to an `.lbrlog` file. See
+   [Live USB serial source](serial-source.md) and
+   [Recording a live source](live-capture.md).
 
 The active identity, lifecycle state, loss count, error and adapter capabilities
 come from the #20 contract. Source seek and source rate buttons are disabled
 with explanatory tooltips when unsupported. They invoke only capabilities an
 adapter actually advertises. They are distinct from the session playback UI
-in #41. No USB device, serial port or physical sensor is assumed.
+in #41. Only the USB serial choice touches hardware, and only the port you pick.
 
 ## CSV preset and integration boundary
 

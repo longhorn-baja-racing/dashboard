@@ -13,6 +13,10 @@ dashboard reads these files directly; no export step is needed.
 4. When the replay starts, every channel appears in the signal browser grouped
    by node. Pick one to plot it or see its readings in the table.
 
+A recording the dashboard made of the live USB stream
+([live-capture.md](live-capture.md)) is an `.lbrlog` too and opens the same way;
+its configuration lines start with `host_` and say it is not the SD card log.
+
 To try it without a car, open the firmware's golden log
 `dev/tests/fixtures/session.lbr` (the dashboard keeps it as hex text in
 `tests/fixtures/lbr/session.lbr.hex`; its README shows how to write it out).
