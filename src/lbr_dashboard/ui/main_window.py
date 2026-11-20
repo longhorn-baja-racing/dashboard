@@ -37,6 +37,7 @@ from .replay_bar import ReplayBar
 from .right_panel import RightPanel
 from .source_picker import SourcePicker
 from .tools import TOOLS
+from .tools.export import PlotImageSaver
 from .top_menu_bar import TopMenuBar
 
 
@@ -180,6 +181,9 @@ class MainWindow(QMainWindow):
         )
         self.analysis = AnalysisContext(self)
         self.analysis_docks = AnalysisDocks(self, self.analysis, TOOLS)
+        self.plot_image = PlotImageSaver(self, self.right_panel.plot_widget)
+        self.analysis_docks.menu.addSeparator()
+        self.analysis_docks.menu.addAction(self.plot_image.action)
         self.open_button.clicked.connect(self.open_csv)
         self.demo_button.clicked.connect(self.try_demo)
         self.cancel_button.clicked.connect(self.cancel_import)

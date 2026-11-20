@@ -26,6 +26,7 @@ class SourcePicker(QGroupBox):
         super().__init__("Telemetry source")
         self.choices = QComboBox()
         self.choices.addItem("CSV replay - timestamp_ms preset", "csv")
+        self.choices.addItem("CSV with column mapping...", "csv_mapped")
         self.choices.addItem("Simulator - process (finite)", "process")
         self.choices.addItem("Simulator - motion (finite)", "motion")
         self.choices.addItem("Simulator - process (live)", "live")

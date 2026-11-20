@@ -1,4 +1,4 @@
-"""Explicit legacy timestamp_ms CSV bridge; arbitrary mappings belong to #31."""
+"""CSV replay sources: the fixed timestamp_ms preset and explicitly mapped files (#31)."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from ..core import (
     SourceEvent,
     SourceEventKind,
 )
+from ..core.csv_mapping import ISO8601, CsvMapping, SignalKind
+from .mapped_csv import MappedCsvImporter
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ROWS = 20000
@@ -39,10 +41,19 @@ def timestamp_ns(text: str) -> int:
     return result
 
 
+class CsvReplaySource(IteratorSource):
+    """Finite CSV replay that can say what its import skipped."""
+
+    def __init__(self, *args, import_summary: str = "", **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.import_summary = import_summary
+
+
 @dataclass(frozen=True)
 class PreparedCsv:
     schema: SignalSchema
     records: tuple[tuple[str, SignalSample], ...]
+    summary: str = ""
 
     def source(self) -> IteratorSource:
         source_id = self.schema.signals[0].source_id
@@ -54,7 +65,7 @@ class PreparedCsv:
                     SourceEventKind.RECORD, source_id, signal_id=identifier, sample=sample
                 )
 
-        return IteratorSource(source_id, self.schema, generate)
+        return CsvReplaySource(source_id, self.schema, generate, import_summary=self.summary)
 
 
 def prepare_csv(path: Path, token: CancellationToken) -> PreparedCsv:
@@ -143,3 +154,64 @@ def prepare_csv(path: Path, token: CancellationToken) -> PreparedCsv:
             records.append((identifier, sample))
     token.raise_if_cancelled()
     return PreparedCsv(SignalSchema(1, tuple(descriptors)), tuple(records))
+
+
+#: Rows the mapping dialog checks while the user edits; the import reads every row.
+MAPPED_PREVIEW_ROWS = 5000
+_DATA_TYPES = {
+    SignalKind.NUMBER: "numeric",
+    SignalKind.BOOLEAN: "boolean",
+    SignalKind.TEXT: "string",
+}
+
+
+def prepare_mapped_csv(path: Path, mapping: CsvMapping, token: CancellationToken) -> PreparedCsv:
+    """Apply a confirmed column mapping off the GUI thread; the file is only read.
+
+    Each mapped column becomes one signal identified by its physical position,
+    named and typed as the mapping says. A missing or invalid cell produces no
+    sample, so slower columns keep their own timeline. Skipped rows and other
+    problems are counted in ``PreparedCsv.summary``.
+    """
+
+    source_id = str(path.resolve())
+    token.raise_if_cancelled()
+    if path.stat().st_size > MAX_BYTES:
+        raise ValueError("CSV exceeds 16 MiB. Choose a smaller file.")
+    session = MappedCsvImporter().import_session(path, mapping, cancel=token)
+    total = sum(len(signal) for signal in session.signals)
+    if len(session.signals) > MAX_SIGNALS or total > MAX_SAMPLES:
+        raise ValueError("Map 1-64 signal columns with at most 200,000 readings.")
+    if not total:
+        raise ValueError(f"No readings with this mapping ({session.summary()}).")
+    domain = "utc" if mapping.time_unit == ISO8601 else "relative"
+    descriptors = []
+    records = []
+    for column, signal in zip(mapping.signals, session.signals):
+        token.raise_if_cancelled()
+        identifier = f"csv.column.{column.column}"
+        descriptors.append(
+            SignalDescriptor(
+                identifier,
+                signal.name,
+                ("csv",),
+                _DATA_TYPES[signal.kind],
+                source_id,
+                canonical_unit=signal.unit or None,
+                timestamp_domain=domain,
+                display={"csv_column": column.column, "csv_header": signal.source_column},
+            )
+        )
+        for time_ns, value in zip(signal.times_ns, signal.values):
+            sample = SignalSample(
+                time_ns,
+                bool(value) if signal.kind is SignalKind.BOOLEAN else value,
+                quality="measured",
+                source_id=source_id,
+                unit=signal.unit or None,
+                timestamp_domain=domain,
+            )
+            records.append((identifier, sample))
+    token.raise_if_cancelled()
+    summary = f"Imported {session.summary()}"
+    return PreparedCsv(SignalSchema(1, tuple(descriptors)), tuple(records), summary)

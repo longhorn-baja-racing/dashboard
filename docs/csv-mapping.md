@@ -5,9 +5,51 @@ unit that time is in, or what the other columns mean. The dashboard therefore
 never guesses silently. It proposes a mapping, lists everything the user
 should confirm, and applies only a mapping the user has accepted.
 
-This is the Qt-free part: the mapping model (`core/csv_mapping.py`) and the
-reader (`importers/mapped_csv.py`). The mapping dialog and the hand-off to the
-generic session model (#18/#21) come next, after #129's import states.
+The mapping model is `core/csv_mapping.py`, the reader is
+`importers/mapped_csv.py`, the dialog is `ui/csv_mapping_dialog.py` and the
+hand-off to the session model is `prepare_mapped_csv` in
+`importers/csv_source.py`.
+
+## In the app
+
+1. In the **Telemetry source** panel choose **CSV with column mapping...** and
+   press **Open CSV / Connect**, then pick a file.
+2. The **Map CSV columns** dialog opens. Nothing has been imported yet.
+   - **Time column** and **Time unit** show the suggestion (see below). When
+     the header does not say the unit, the unit stays on "Choose the time
+     unit" and Import is disabled. A familiar header such as `timestamp_ms` is
+     pre-selected as milliseconds, but both boxes stay editable.
+   - The **Columns** table has one row per column: untick **Import** to leave
+     a column out, and edit **Signal name**, **Unit** and **Type** (number,
+     true/false or text). The time column cannot also be a signal. Units may
+     not contain spaces (write `degC`, not `deg C`).
+   - **First 20 data rows** shows the file as read (BOM removed, quotes
+     resolved).
+   - **Check before importing** lists, as you edit:
+     `Fix:` mapping errors that block Import (no time column or unit, empty or
+     repeated names, a unit with spaces);
+     `Check:` points of the suggestion to confirm (several time-like columns,
+     renamed duplicate headers, numeric columns with non-numeric cells);
+     `Line N, 'column': ...` rows that will be skipped or cells that will be
+     missing, with the file line number;
+     `Note:` out-of-order rows, zone-less ISO times.
+     The line under the list summarizes the check, for example "Checked the
+     whole file: 3 signals from 6 rows, 1 row skipped, 2 problems". Only the
+     first 5,000 rows are checked while editing; the import reads them all.
+3. **Import** converts the file on a worker into the same session and replay
+   source as the timestamp_ms preset: each mapped column becomes signal
+   `csv.column.<index>` (its position in the file) with the chosen name, unit
+   and type. The panel status then reads, for example, "Imported 3 signals
+   from 6 rows, 1 row skipped, 2 problems, 1 row out of time order".
+   **Disconnect** cancels a running import; a failed import reports why and
+   keeps the previous session.
+4. **Cancel** closes the dialog and leaves the current session, source and
+   status exactly as they were.
+
+The same limits as the preset apply: 16 MiB, 64 signals and 200,000 readings.
+The dialog remembers nothing between files: no folder, mapping or file name is
+stored. Encoding and delimiter are UTF-8 and comma in the dialog; the reader
+supports others for scripted use.
 
 ## The mapping
 
@@ -100,6 +142,16 @@ and the first 200 rows and returns a `Suggestion` with a mapping and a list of
 Reading 100,000 rows x 16 columns takes about 0.8 s on a development laptop.
 
 ## Tests
+
+`tests/ui/test_csv_mapping_workflow.py` drives the real window: a file with an
+unfamiliar time header in seconds, a BOM, CRLF, quoted fields, missing values,
+an invalid time row, an invalid number, a repeated time and an out-of-order
+row is mapped in the dialog, its problems are checked by line number, and the
+session's times and values are compared with the file. It also imports the
+legacy example with the pre-selected `timestamp_ms` default and again with the
+unit changed to seconds, checks that Cancel leaves the session untouched, and
+that an unreadable file is reported. `tests/importers/test_csv_source.py`
+covers `prepare_mapped_csv` (types, sparse samples, limits, cancellation).
 
 `tests/importers/test_mapped_csv.py` covers the legacy example
 `sample_data/sample_baja_log.csv` (time in ms from `timestamp_ms`, known times
