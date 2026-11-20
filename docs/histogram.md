@@ -2,7 +2,8 @@
 
 `lbr_dashboard.core.histogram` counts how many samples of one numeric signal
 fall into each value bin over a time interval. `lbr_dashboard.ui.histogram_widget`
-draws the result. The widget is not wired into the main window yet.
+draws the result. In the app, **Analysis > Histogram** opens it as a dock over
+the loaded session (see [Histogram tool](#histogram-tool) below).
 
 This is the sample-count mode only. Density, cumulative and time-weighted
 histograms are out of scope until an analysis needs them.
@@ -102,4 +103,33 @@ start edge to its end edge. The x axis is labelled with the signal name and
 unit, the y axis with `samples`. A text line under the plot lists the valid,
 missing, non-finite and out-of-range counts and the interval in seconds, so no
 information depends on color alone. An empty result draws no bars and says so in
-the title. `clear()` resets the view.
+the title. `clear()` resets the view. The widget sets titles and labels without
+a color, so colors given to its plot (for example by `style_plot`) survive
+every redraw.
+
+## Histogram tool
+
+**Analysis > Histogram** (`lbr_dashboard.ui.tools.histogram`) opens a dock that
+histograms the signal selected in the signal browser:
+
+- Over the shared time interval when one is selected (Analysis > Select visible
+  time range), otherwise over the whole session. The interval is closed and is
+  shown under the plot in session seconds.
+- Only numeric scalar signals are histogrammed; for anything else, or when no
+  signal is selected, the dock says why it is empty.
+- The line above the plot names the signal, its unit (or "no unit") and whether
+  the interval or the whole session is used. The bin edge line gives the first
+  and last edge, the bin width and the edge rule. The table lists every bin as
+  `[a, b)` (or `[a, b]` for the last) with its sample count, with the unit in
+  the column header.
+- Missing readings (unavailable, no value or NaN) and non-finite values are
+  counted under the plot and never enter a bin.
+- **Bins** sets the number of equal-width bins (1 to 500, default 10). A range
+  too narrow for that many bins is reported instead of drawn.
+
+The plot follows the application theme through `AnalysisContext.style_plot`.
+`HistogramTool.configuration()` returns the settings as a plain dict
+(`{"bins": 10}`) and `restore_configuration(config)` applies one, ignoring
+unknown or invalid entries, so a saved workspace can keep the bin count.
+`HistogramTool.result` is the last `Histogram`, whose `to_rows()` gives the
+exportable bin values.

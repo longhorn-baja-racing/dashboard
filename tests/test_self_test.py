@@ -26,7 +26,12 @@ def test_sample_opens_and_plots_from_source(qapp: object) -> None:
     result = run(SAMPLE)
     assert result.passed
     names = [name for name, _, _ in result.checks]
-    assert names == ["start the main window", "open the sample CSV", "plot a column"]
+    assert names == [
+        "start the main window",
+        "open the sample CSV",
+        "plot a column",
+        "list the analysis tools",
+    ]
     report = result.report()
     assert "16 columns, 10 rows" in report and report.endswith("self-test passed\n")
     assert report.isascii()
