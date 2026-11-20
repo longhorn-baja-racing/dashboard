@@ -91,3 +91,16 @@ def test_format_ns_is_exact(value: int, text: str) -> None:
 def test_interval_text_names_open_ends() -> None:
     assert interval_text(histogram([0], [1.0], start_ns=0)) == "[0 s, log end]"
     assert interval_text(histogram([0], [1.0], end_ns=2_000_000_000)) == "[log start, 2 s]"
+
+
+def test_redraws_keep_the_colors_the_plot_was_themed_with(widget: HistogramWidget) -> None:
+    from lbr_dashboard.ui.plot_style import apply_plot_colors
+
+    apply_plot_colors(widget.plot_widget, "#ffffff", "#123456")
+    widget.show_histogram(histogram([0, 1], [1.0, 2.0], bins=2), "a")
+    plot = widget.plot_widget.getPlotItem()
+    assert plot is not None
+    assert plot.titleLabel.opts["color"] == "#123456"
+    widget.clear()
+    assert plot.titleLabel.opts["color"] == "#123456"
+    assert widget.styleSheet() == ""

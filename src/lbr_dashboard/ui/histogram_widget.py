@@ -42,7 +42,11 @@ def summary_text(hist: Histogram) -> str:
 
 
 class HistogramWidget(QWidget):
-    """Show one :class:`Histogram` as bars spanning their bin edges."""
+    """Show one :class:`Histogram` as bars spanning their bin edges.
+
+    Titles and labels are set without a color, so whatever colors the plot was
+    given (for example by ``AnalysisContext.style_plot``) stay after a redraw.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -59,7 +63,6 @@ class HistogramWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.plot_widget)
         layout.addWidget(self.summary)
-        self.setStyleSheet("background-color: #3a3a3a; color: #ffffff;")
         self.clear()
 
     def clear(self) -> None:
@@ -67,7 +70,7 @@ class HistogramWidget(QWidget):
 
         self.plot_widget.clear()
         self.bars = None
-        self.plot_widget.setTitle(EMPTY_TITLE, color="#aaaaaa")
+        self.plot_widget.setTitle(EMPTY_TITLE)
         self.plot_widget.setLabel("bottom", "")
         self.plot_widget.setLabel("left", "samples")
         self.summary.setText("")
@@ -80,9 +83,9 @@ class HistogramWidget(QWidget):
         self.plot_widget.setLabel("bottom", axis_label)
         self.summary.setText(summary_text(hist))
         if hist.is_empty:
-            self.plot_widget.setTitle(f"{name}: no valid samples in interval", color="#aaaaaa")
+            self.plot_widget.setTitle(f"{name}: no valid samples in interval")
             return
-        self.plot_widget.setTitle(f"{name} histogram", color="#aaaaaa")
+        self.plot_widget.setTitle(f"{name} histogram")
         self.bars = pg.BarGraphItem(
             x0=list(hist.edges[:-1]),
             x1=list(hist.edges[1:]),
