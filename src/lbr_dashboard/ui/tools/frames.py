@@ -28,7 +28,7 @@ from ...core.frames import (
     plan,
     rotate_vector,
 )
-from ..analysis import AnalysisContext, AnalysisTool
+from ..analysis import AnalysisContext, AnalysisTool, refresh_soon
 
 _PLACEHOLDERS = {
     "euler": "0, 0, 90",
@@ -120,7 +120,7 @@ class FramesTool(QWidget):
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.refresh)
         for change in (context.snapshot_changed, context.cursor_changed):
-            change.connect(self.timer.start)
+            change.connect(refresh_soon(self.timer))
         context.frames_changed.connect(self._frames_changed)
         self._form_changed()
         self._list_applied()

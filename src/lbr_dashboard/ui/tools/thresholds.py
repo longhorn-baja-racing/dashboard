@@ -54,7 +54,7 @@ from ...core.thresholds import (
     rules_to_json,
     transition_at,
 )
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 
 NORMAL = "normal"
 ACTIVE = "active"
@@ -273,7 +273,7 @@ class ThresholdsTool(QWidget):
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.refresh)
         for change in (context.snapshot_changed, context.signal_changed, context.cursor_changed):
-            change.connect(self.timer.start)
+            change.connect(refresh_soon(self.timer))
         context.signal_changed.connect(self._follow_selected_signal)
         context.plot_changed.connect(self._sync_lines)
         self._update_signal_choices()

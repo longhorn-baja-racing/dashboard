@@ -67,7 +67,7 @@ from ...core.session_alignment import (
     overlap,
     samples_in_window,
 )
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 from ..multi_trace_plot import COLORS, LIGHT_COLORS
 
 NANOSECONDS = 1_000_000_000
@@ -412,8 +412,8 @@ class SessionOverlayTool(QWidget):
         self.load_timer = QTimer(self)
         self.load_timer.setInterval(30)
         self.load_timer.timeout.connect(self.poll_loading)
-        context.snapshot_changed.connect(self.timer.start)
-        context.theme_changed.connect(self.timer.start)
+        context.snapshot_changed.connect(refresh_soon(self.timer))
+        context.theme_changed.connect(refresh_soon(self.timer))
         context.cursor_changed.connect(self.update_cursor)
         if self.source_choice.count() == 0:
             self.status.setText("This window has no comparison readers.")

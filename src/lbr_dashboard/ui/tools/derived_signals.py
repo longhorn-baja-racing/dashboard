@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from ...core.derived import FUNCTIONS, DerivedSignalError, parse_expression
 from ...core.derived_session import DerivedPreview, missing_text, provenance
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 
 PREVIEW_ROWS = 20
 NANOSECONDS = 1_000_000_000
@@ -144,16 +144,16 @@ class DerivedSignalsTool(QWidget):
         self.output_id.textEdited.connect(self._id_edited)
         for field in (self.expression, self.unit):
             field.textChanged.connect(self.timer.start)
-        self.reference.currentIndexChanged.connect(self.timer.start)
-        self.hold.valueChanged.connect(self.timer.start)
+        self.reference.currentIndexChanged.connect(refresh_soon(self.timer))
+        self.hold.valueChanged.connect(refresh_soon(self.timer))
         self.insert_button.clicked.connect(self.insert_signal)
         self.apply_button.clicked.connect(self.apply)
         self.new_button.clicked.connect(self.new)
         self.edit_button.clicked.connect(self.edit_selected)
         self.remove_button.clicked.connect(self.remove_selected)
         self.applied.itemSelectionChanged.connect(self._update_buttons)
-        context.snapshot_changed.connect(self.timer.start)
-        context.derived_changed.connect(self.timer.start)
+        context.snapshot_changed.connect(refresh_soon(self.timer))
+        context.derived_changed.connect(refresh_soon(self.timer))
         self.refresh()
 
     # Form -------------------------------------------------------------------

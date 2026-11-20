@@ -14,7 +14,7 @@ from numbers import Real
 from pathlib import Path
 
 import pyqtgraph as pg
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
 
@@ -248,6 +248,29 @@ def session_bounds(snapshot: SessionSnapshot | None) -> TimeInterval | None:
             starts.append(records[0].sample.timestamp_ns)
             ends.append(records[-1].sample.timestamp_ns)
     return TimeInterval(min(starts), max(ends)) if starts else None
+
+
+class _RefreshSoon(QObject):
+    def __init__(self, timer: QTimer) -> None:
+        super().__init__(timer)
+        self._timer = timer
+
+    def start(self, *_args: object) -> None:
+        if not self._timer.isActive():
+            self._timer.start()
+
+
+def refresh_soon(timer: QTimer) -> Callable[..., None]:
+    """Return a slot that starts ``timer`` only when it is not already running.
+
+    Connecting a change signal straight to ``timer.start`` restarts the timer on
+    every change, so a source that sends snapshots faster than the timer
+    interval would postpone the refresh forever. This slot keeps the first
+    start, so a refresh happens at most one interval after a change. It lives
+    on a child of the timer, so Qt drops the connection with the timer.
+    """
+
+    return _RefreshSoon(timer).start
 
 
 @dataclass(frozen=True)

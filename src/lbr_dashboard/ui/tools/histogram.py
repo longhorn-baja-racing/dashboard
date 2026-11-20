@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.histogram import DEFAULT_BINS, EDGE_RULE, Histogram, histogram
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 from ..histogram_widget import HistogramWidget
 
 MAX_BINS = 500
@@ -110,8 +110,8 @@ class HistogramTool(QWidget):
             context.signal_changed,
             context.interval_changed,
         ):
-            change.connect(self.timer.start)
-        self.bins.valueChanged.connect(self.timer.start)
+            change.connect(refresh_soon(self.timer))
+        self.bins.valueChanged.connect(refresh_soon(self.timer))
         self.refresh()
 
     def configuration(self) -> dict[str, object]:
