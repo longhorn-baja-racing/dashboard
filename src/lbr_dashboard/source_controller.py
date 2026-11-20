@@ -371,6 +371,8 @@ class SourceController(QObject):
             self._prepared.clear()
         if self._releasing:
             if self.source is None or self.source.close(0):
+                if self.source is not None:
+                    self._record_final_health(self.source)
                 self.source = None
                 self._releasing = False
                 if self._next is not None and not self._closing:
@@ -432,6 +434,17 @@ class SourceController(QObject):
         ):
             self.timer.stop()
             self.window.close()
+
+    def _record_final_health(self, source: TelemetrySource) -> None:
+        """Keep the released source's last health so analysis sees it disconnected."""
+        session = self.session
+        if session is None or self._closing:
+            return
+        try:
+            session.ingest((), source_health={source.source_id: source.health()})
+        except ValueError:
+            return  # The session belongs to a different source (failed start).
+        self.window.analysis.set_snapshot(session, session.snapshot())
 
     def _present(self) -> None:
         picker = self.window.source_picker
