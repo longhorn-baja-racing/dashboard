@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
+import numpy.typing as npt
 import pyqtgraph as pg
 from pyqtgraph.graphicsItems.PlotItem import PlotItem
 from PySide6.QtCore import Qt
@@ -29,7 +30,48 @@ def filter_label(result: FilteredSignal) -> str:
     text += f" {params.alignment}"
     if result.window_span_ns is not None:
         text += f" ({result.window_span_ns / 1e6:g} ms)"
+    if params.alignment == "trailing" and result.delay_ns is not None:
+        text += f", delay {result.delay_ns / 1e6:g} ms"
     return text
+
+
+def filtered_name(result: FilteredSignal, name: str) -> str:
+    """Curve name: signal name, unit and the filter with its parameters."""
+
+    unit = f" [{result.unit}]" if result.unit else ""
+    return f"{name}{unit} {filter_label(result)}"
+
+
+def filtered_points(
+    result: FilteredSignal, origin_ns: int = 0
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """x in seconds since ``origin_ns`` and the filtered values (NaN = no output)."""
+
+    return (result.times_ns - np.int64(origin_ns)) / 1e9, np.array(result.values)
+
+
+def plot_filtered(
+    plot_item: PlotItem,
+    result: FilteredSignal,
+    *,
+    name: str,
+    origin_ns: int = 0,
+    color: str = FILTERED_COLOR,
+) -> pg.PlotDataItem:
+    """Add only the filtered curve; x is seconds since ``origin_ns``.
+
+    The curve breaks wherever there is no filter output and is named after the
+    signal, its unit and the filter parameters.
+    """
+
+    xs, ys = filtered_points(result, origin_ns)
+    return plot_item.plot(
+        xs,
+        ys,
+        connect="finite",
+        pen=pg.mkPen(color, width=2),
+        name=filtered_name(result, name),
+    )
 
 
 def overlay_filtered(
@@ -63,11 +105,5 @@ def overlay_filtered(
         pen=pg.mkPen(raw_color, width=1, style=Qt.PenStyle.DashLine),
         name=f"{name}{unit} raw",
     )
-    filtered_curve = plot_item.plot(
-        xs,
-        np.array(result.values),
-        connect="finite",
-        pen=pg.mkPen(filtered_color, width=2),
-        name=f"{name}{unit} {filter_label(result)}",
-    )
+    filtered_curve = plot_filtered(plot_item, result, name=name, color=filtered_color)
     return raw_curve, filtered_curve

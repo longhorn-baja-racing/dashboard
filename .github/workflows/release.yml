@@ -1,0 +1,127 @@
+name: Release
+
+# Pushing a tag vX.Y.Z builds and tests the Windows portable ZIP and installer
+# and publishes them as a GitHub Release only if every step passed (issue #56).
+# Running it by hand (workflow_dispatch) is a dry run: it builds, tests and
+# uploads the would-be release as an artifact, but never publishes.
+# See docs/releasing.md.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build and test Windows artifacts
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PYTHONFAULTHANDLER: "1"
+      # Empty for a dry run from a branch, so the scripts check v<version>.
+      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.23"
+          python-version: "3.13"
+          enable-cache: false
+      - run: uv sync --locked --extra dev --extra package
+      - name: Check the tag matches the package version and has release notes
+        run: uv run --locked python scripts/prepare_release.py check
+      - name: Regression tests
+        run: uv run --locked python scripts/check_quality.py --stage tests
+      - name: Build the portable ZIP
+        run: uv run --locked python scripts/build_portable.py
+      - name: Run the ZIP from a non-ASCII path without Python
+        run: uv run --locked python scripts/smoke_portable.py dist/portable
+      - name: Find Inno Setup, installing it if the runner lacks it
+        run: |
+          uv run --locked python scripts/build_installer.py --find-iscc
+          if ($LASTEXITCODE -ne 0) {
+            choco install innosetup --version 6.7.1 --no-progress --yes
+            uv run --locked python scripts/build_installer.py --find-iscc
+          }
+      - name: Build the installer
+        run: uv run --locked python scripts/build_installer.py dist/portable
+      - name: Build an older installer to test upgrades
+        run: >-
+          uv run --locked python scripts/build_installer.py dist/portable
+          --version 0.0.0 --compression none
+          --out build/installer-old --stage build/installer-old-stage
+      - name: Install, run, upgrade and uninstall silently
+        run: >-
+          uv run --locked python scripts/smoke_installer.py dist/installer
+          --older build/installer-old --keep-logs test-results/installer
+      - name: Verify artifacts and write checksums and release notes
+        id: release
+        run: uv run --locked python scripts/prepare_release.py assemble
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-x64
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Upload test and installer logs
+        if: ${{ failure() && hashFiles('test-results/**') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-logs
+          path: test-results/
+          retention-days: 7
+
+  publish:
+    name: Publish the GitHub Release
+    needs: windows
+    # Only a pushed tag publishes, and only after every Windows step passed.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-windows-x64
+          path: release
+      - name: Verify the checksums again
+        working-directory: release/assets
+        run: sha256sum --check --strict SHA256SUMS.txt
+      - name: Create a draft, upload every file, then publish it
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.windows.outputs.tag }}
+          VERSION: ${{ needs.windows.outputs.version }}
+          PRERELEASE: ${{ needs.windows.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          test "$TAG" = "$GITHUB_REF_NAME"
+          flags=(--draft --verify-tag --title "LBR Dashboard $VERSION" --notes-file release-notes.md)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "${flags[@]}" assets/*
+          expected=$(find assets -type f | wc -l)
+          uploaded=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          if [ "$uploaded" -ne "$expected" ]; then
+            echo "only $uploaded of $expected files uploaded; the release stays a draft" >&2
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false
