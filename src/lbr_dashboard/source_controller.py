@@ -20,9 +20,12 @@ from .core import (
     TelemetrySource,
     example_signals,
 )
-from .importers.csv_source import prepare_csv
+from .core.csv_mapping import CsvMapping
+from .importers.csv_source import MAPPED_PREVIEW_ROWS, prepare_csv, prepare_mapped_csv
 from .importers.lbrlog_source import prepare_lbrlog
+from .importers.mapped_csv import CsvMappingError, MappedCsvImporter, read_sample, suggest_mapping
 from .replay_controller import ReplayController
+from .ui.csv_mapping_dialog import CsvMappingDialog
 from .ui.main_window import MainWindow
 
 
@@ -78,6 +81,7 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
+        self.mapping_dialog: CsvMappingDialog | None = None
         self.replay = ReplayController(window)
         for family in ("process", "motion", "live"):
 
@@ -134,6 +138,12 @@ class SourceController(QObject):
             )
             if file_path:
                 self.open_csv(Path(file_path))
+        elif key == "csv_mapped":
+            file_path, _ = QFileDialog.getOpenFileName(
+                self.window, "Open CSV to map", "", "CSV files (*.csv);;All files (*)"
+            )
+            if file_path:
+                self.map_csv(Path(file_path))
         elif key in self._file_options:
             option = self._file_options[key]
             file_path, _ = QFileDialog.getOpenFileName(
@@ -163,6 +173,36 @@ class SourceController(QObject):
             return prepared.source
 
         self.request(SourceOption("csv", str(path), prepare))
+
+    def map_csv(self, path: Path) -> None:
+        """Ask for an explicit column mapping; Cancel leaves the current session as it was."""
+        try:
+            headers, rows = read_sample(path)
+        except CsvMappingError as error:
+            self._notice = f"Could not open {path.name}: {error}"
+            self._present()
+            return
+        suggestion = suggest_mapping(headers, rows)
+        importer = MappedCsvImporter()
+        dialog = CsvMappingDialog(
+            path.name,
+            headers,
+            rows,
+            suggestion.mapping,
+            suggestion.ambiguities,
+            lambda mapping: importer.import_session(path, mapping, max_rows=MAPPED_PREVIEW_ROWS),
+            self.window,
+        )
+        dialog.accepted.connect(lambda: self.open_mapped_csv(path, dialog.mapping()))
+        dialog.finished.connect(dialog.deleteLater)
+        self.mapping_dialog = dialog
+        dialog.open()
+
+    def open_mapped_csv(self, path: Path, mapping: CsvMapping) -> None:
+        def prepare(token):
+            return prepare_mapped_csv(path, mapping, token).source
+
+        self.request(SourceOption("csv_mapped", str(path), prepare))
 
     def request(self, option: SourceOption) -> None:
         if self._preparing is not None or self._releasing or self._closing:
@@ -273,7 +313,8 @@ class SourceController(QObject):
             self._legacy_loaded = False
             self._label = self._last.label if self._last else self.source.source_id
             self.window.display_telemetry_source()
-            self._notice = ""
+            # A CSV replay may say which rows its import skipped.
+            self._notice = getattr(self.source, "import_summary", "")
             self._revision = -1
             self._displayed_schema = None
             self._finished_rendered = False
