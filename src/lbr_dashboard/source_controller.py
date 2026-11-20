@@ -43,6 +43,9 @@ from .ui.tools.session_overlay import (
 # While a live source streams, derived signals are evaluated at most this often.
 DERIVED_INTERVAL_S = 0.25
 
+# While a live source streams, derived signals are evaluated at most this often.
+DERIVED_INTERVAL_S = 0.25
+
 
 @dataclass(frozen=True)
 class SourceOption:
