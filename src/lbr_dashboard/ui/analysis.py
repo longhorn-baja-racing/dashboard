@@ -47,9 +47,11 @@ class AnalysisContext(QObject):
         self.snapshot: SessionSnapshot | None = None
         self.selected_id: str | None = None
         self.cursor_ns: int | None = None
+        self.following_live = False
         self.log_path: Path | None = None
         self.plot: pg.PlotWidget | None = None
         self.plot_origin_ns: int | None = None
+        self.plot_signal_id: str | None = None
         self.selection = IntervalSelection()
         self.plot_colors = ("#202020", "#eeeeee")
         self._descriptors: dict[str, SignalDescriptor] = {}
@@ -105,9 +107,12 @@ class AnalysisContext(QObject):
             self.selected_id = signal_id
             self.signal_changed.emit()
 
-    def set_cursor(self, time_ns: int | None) -> None:
-        if time_ns != self.cursor_ns:
+    def set_cursor(self, time_ns: int | None, *, live: bool = False) -> None:
+        """Move the replay cursor; ``live`` is true while the clock follows live data."""
+
+        if time_ns != self.cursor_ns or live != self.following_live:
             self.cursor_ns = time_ns
+            self.following_live = live
             self.cursor_changed.emit()
 
     def request_seek(self, time_ns: int) -> None:
@@ -115,14 +120,22 @@ class AnalysisContext(QObject):
 
         self.seek_requested.emit(time_ns)
 
-    def set_plot(self, plot: pg.PlotWidget | None, origin_ns: int | None) -> None:
+    def set_plot(
+        self,
+        plot: pg.PlotWidget | None,
+        origin_ns: int | None,
+        *,
+        signal_id: str | None = None,
+    ) -> None:
         """Record the main time plot, whose x axis is seconds since ``origin_ns``.
 
-        ``plot_changed`` is emitted every time the plot is (re)attached, including
-        after it was cleared, so tools can draw their items on it again.
+        ``signal_id`` is the signal the plot shows. ``plot_changed`` is emitted
+        every time the plot is (re)attached, including after it was cleared, so
+        tools can draw their items on it again.
         """
 
         self.plot, self.plot_origin_ns = plot, origin_ns
+        self.plot_signal_id = signal_id if plot is not None else None
         self.plot_changed.emit()
 
     def set_plot_colors(self, background: str, text: str) -> None:
@@ -281,7 +294,7 @@ class AnalysisDocks:
             current.detach()
         self._plot, self._origin_ns = plot, origin_ns
         self.region = IntervalRegion(plot, self.context.selection, PlotTimeScale.seconds(origin_ns))
-        self.context.set_plot(plot, origin_ns)
+        self.context.set_plot(plot, origin_ns, signal_id=self.context.selected_id)
 
     def leave_plot(self) -> None:
         """Remove the region, e.g. while the plot shows something other than a session."""

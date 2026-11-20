@@ -17,6 +17,8 @@ source controller and replay controller keep it current:
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
 | `log_path` | the file the session was read from, or None (simulators) | `snapshot_changed` |
 | `plot` / `plot_origin_ns` | the main time plot and its x origin (x is seconds since it) | `plot_changed` |
+| `plot_signal_id` | the signal the main time plot shows | `plot_changed` |
+| `following_live` | true while the replay bar follows live data | `cursor_changed` |
 
 Helpers:
 
