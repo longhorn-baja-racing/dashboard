@@ -100,14 +100,52 @@ nearest `t_ns` (ties pick the earlier pair), searching every pair including
 ones not drawn, and returns that driver time; `None` or an empty series hides
 the marker.
 
-The widget is not yet part of the main window. Signal selection, a selected
-interval and saving the configuration depend on the shared signal model and
-widget configuration work.
+`show_pairs(..., fit=False)` keeps the current pan and zoom; the app uses it
+while new data streams in for the same choices. `clear(message)` removes the
+scatter and highlight and shows `message` in place of the note.
+
+## In the app: Analysis > XY plot
+
+**Analysis > XY plot** opens the tool (`lbr_dashboard.ui.tools.xy`) as a dock
+over the loaded session:
+
+- **X** and **Y** list the session's scalar numeric signals as
+  `name (unit) - id`. Boolean, string, event, vector and status signals are not
+  offered. They default to the first two numeric signals.
+- **Pairing** is `Nearest sample` (`NEAREST`) or `Previous sample (hold)`
+  (`PREVIOUS`); **Tolerance** is in milliseconds (default 100 ms). X is
+  always the driver.
+- When a time interval is selected (Analysis > Select visible time range) only
+  X samples inside it are paired; otherwise the whole session is used. Y
+  samples are read up to the tolerance outside the interval, as described
+  above.
+- Axes show `name (unit)` from each signal's canonical unit. The note under
+  the plot shows the rule, "Showing N of M pairs" (at most 20000 drawn) and
+  the excluded counts by reason.
+- The pair nearest the replay cursor is ringed while the cursor is inside the
+  selected interval (or anywhere, without one).
+- Two signals whose samples use different timestamp domains are not paired;
+  the tool says so instead of plotting.
+- Refreshes are coalesced to one per 100 ms while a source streams, and keep
+  the current pan and zoom until the choices or the interval change.
+
+`XYTool.configuration()` returns
+
+```
+{"x_signal_id": "...", "y_signal_id": "...", "mode": "nearest", "tolerance_ns": 100000000}
+```
+
+and `restore_configuration(config)` applies one. A signal id the session does
+not have stays chosen and is listed as `<id> (unavailable)`; nothing is drawn
+and the hint names the missing signal until another signal is chosen or a
+session with that id is loaded. Missing keys take the defaults; a malformed
+value (wrong type, unknown mode, negative tolerance) raises `ValueError` and
+changes nothing.
 
 ## Running the tests
 
 On Windows (PowerShell) or any other platform, from the repository root:
 
 ```
-uv run --locked --extra dev pytest tests/core/test_xy_pairing.py tests/ui/test_xy_plot.py
+uv run --locked --extra dev pytest tests/core/test_xy_pairing.py tests/ui/test_xy_plot.py tests/ui/test_xy_tool.py
 ```
