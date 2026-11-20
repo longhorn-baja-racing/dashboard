@@ -40,7 +40,16 @@ FloatArray = npt.NDArray[np.float64]
 
 
 class SamplingError(ValueError):
-    """The samples are not uniform and gap-free, so no spectrum is computed."""
+    """The samples are not uniform and gap-free, so no spectrum is computed.
+
+    ``index`` is the sample the problem was found at (the first missing value,
+    the first out-of-order timestamp, or the sample after the worst spacing),
+    or None when the problem is not tied to one sample.
+    """
+
+    def __init__(self, message: str, index: int | None = None) -> None:
+        super().__init__(message)
+        self.index = index
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +173,8 @@ def spectrum(
     if bad.size:
         raise SamplingError(
             f"{bad.size} missing or non-finite value(s), first at index {int(bad[0])}; "
-            f"fill or drop them and {RESAMPLE_HINT}"
+            f"fill or drop them and {RESAMPLE_HINT}",
+            int(bad[0]),
         )
 
     times = _checked_times(times_ns)
@@ -175,7 +185,8 @@ def spectrum(
         kind = "duplicate" if times[index] == times[index - 1] else "decreasing"
         raise SamplingError(
             f"timestamps must be strictly increasing; {kind} timestamp at index {index}; "
-            f"sort and de-duplicate the samples and {RESAMPLE_HINT}"
+            f"sort and de-duplicate the samples and {RESAMPLE_HINT}",
+            index,
         )
 
     # Every spacing is now in [1, 2**64 - 1] ns, so the difference taken modulo
@@ -191,7 +202,8 @@ def spectrum(
         raise SamplingError(
             f"sample spacing is not uniform: spacing before index {worst} differs from the "
             f"mean spacing by {jitter:.3%} (tolerance {max_jitter:.3%}), which can mean a "
-            f"gap or irregular timing; {RESAMPLE_HINT}"
+            f"gap or irregular timing; {RESAMPLE_HINT}",
+            worst,
         )
 
     sample_rate = 1e9 / mean_step
