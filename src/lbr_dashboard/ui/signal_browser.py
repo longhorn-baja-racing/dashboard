@@ -294,5 +294,5 @@ class SignalBrowser(QWidget):
             f"Path: {' / '.join(descriptor.path)}\nSource: {descriptor.source_id}\n"
             f"Unit: {descriptor.canonical_unit or 'unspecified'} | Type: {descriptor.data_type}\n"
             f"Device: {descriptor.device_id or 'unspecified'}\n"
-            f"{state}: {reason}"
+            f"{state}: {reason}" + (f"\n{descriptor.description}" if descriptor.description else "")
         )

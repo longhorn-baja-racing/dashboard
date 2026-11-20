@@ -54,19 +54,19 @@ def read(path: Path):
 
 def test_fixture_is_the_pinned_firmware_file() -> None:
     digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
-    assert digest == "3123ec520eee382524ab2218910aa79e2705e00f3864268639f96b8087faea4e"
+    assert digest == "555eca81fe69fc92a006e23787a702cebd628fefcb0b88fa199b7874831f1202"
 
 
 def test_fixture_session_metadata() -> None:
     session = read(FIXTURE)
     assert session.source_name == "session.csv" and session.csv_version == 1
-    assert session.row_count == 71 and session.malformed_count == 0
+    assert session.row_count == 72 and session.malformed_count == 0
     assert session.logger == "central"
     assert dict(session.session) == {
         "format_version": "1",
         "protocol_version": "4",
         "fw_version": "512",
-        "catalog_hash": "2862307193",
+        "catalog_hash": "580578432",
         "config_crc": "777070580",
         "reset_reason": "5",
         "boot_count": "42",
@@ -80,6 +80,7 @@ def test_fixture_session_metadata() -> None:
         "truncated_tail": 9,
         "time_sync_frames": 0,
         "time_follow_up_frames": 0,
+        "update_data_frames": 0,
         "catalog_checked": 1,
     }
 
@@ -174,7 +175,7 @@ def test_detection(tmp_path: Path) -> None:
     bom = tmp_path / "bom.csv"
     bom.write_bytes(b"\xef\xbb\xbf" + FIXTURE.read_bytes())
     assert is_lbr_csv(bom)
-    assert read(bom).row_count == 71
+    assert read(bom).row_count == 72
     broken = write(tmp_path, '"unterminated', name="broken.csv")
     assert not is_lbr_csv(broken)
     empty = write(tmp_path, "", name="empty-line.csv")
@@ -412,7 +413,7 @@ def test_crlf_line_endings(tmp_path: Path) -> None:
     path = tmp_path / "crlf.csv"
     path.write_bytes(FIXTURE.read_bytes().replace(b"\n", b"\r\n"))
     session = read(path)
-    assert session.row_count == 71 and session.malformed_count == 0
+    assert session.row_count == 72 and session.malformed_count == 0
     assert session.events[1].value == 'I (2500) central: fixture "text" record'
 
 

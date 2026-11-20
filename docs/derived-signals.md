@@ -4,7 +4,8 @@ A derived signal is computed from other signals with a short arithmetic
 expression, for example the magnitude of an acceleration vector or a pressure
 ratio. The engine is `lbr_dashboard.core.derived` (standard library only). It
 works on plain timestamp/value sequences, so it does not depend on any source
-type. The editor UI and saving definitions in workspaces are later work.
+type. In the app, **Analysis > Derived signals** defines, previews and applies
+derived signals (see [Using derived signals in the app](#using-derived-signals-in-the-app)).
 
 ## Safety
 
@@ -177,13 +178,82 @@ have no samples before `start_ns`.
 
 `to_dict()` returns a JSON-compatible dict with `version: 1` and every field.
 `from_dict()` requires exactly those keys with the right types (no booleans
-for numbers) and validates the expression again. Saving definitions in
-workspaces, unresolved inputs on load and provenance are part of later work.
+for numbers) and validates the expression again.
+
+## Using derived signals in the app
+
+Open **Analysis > Derived signals**. The dock has a form for one definition,
+a live preview and the list of applied derived signals.
+
+1. Enter a name. The id is filled in as `derived.<name>` (lowercase, `_`
+   between words) until you edit it; it must be a valid signal id and must not
+   be the id of a recorded signal.
+2. Write the expression. Pick a numeric signal in the list and press
+   **Insert signal** to add `sig("<id>")` at the cursor, for example
+   `sig("csv.column.2") * 2` or `sig("csv.column.1") - 20` with the CSV demo.
+3. Optionally declare the unit (blank uses the unit the expression gives).
+   Units are written without spaces, as everywhere in the app (`degC`).
+4. Choose the input whose timestamps the output uses (**Timestamps from**) and
+   how long the other inputs may be held (**Hold other inputs**, in ms; 0 means
+   exact timestamp match). This is the alignment policy described above.
+
+The preview updates as you type. It shows the sample and missing counts, the
+unit, the minimum and maximum, each input with its unit and sample count, and
+the first rows with the reason for every missing sample. It evaluates at most
+the first 20000 reference samples. Problems are shown instead and **Apply**
+stays disabled: unknown signals, text, status or vector inputs, inputs from
+different sources or clock domains, unit mismatches, cycles between derived
+signals and anything outside the grammar, such as `__import__("os")`. Input
+units the unit notation cannot read (for example the simulator's degree
+Celsius symbol) are treated as unknown and listed as a note.
+
+**Apply** adds the signal (or replaces the one being edited). Applied signals:
+
+- appear in the signal browser under `derived`, with the expression, inputs,
+  unit and alignment in the details below the tree;
+- plot on the main time plot, work with the replay cursor and value docks,
+  and can be used by the other analysis tools and as inputs of further derived
+  signals;
+- use the reference input's source and clock domain and keep missing samples
+  missing (unavailable readings with quality `missing: <reason>`).
+
+Recorded signals are never changed: the source controller evaluates the
+definitions into each snapshot it shows and adds the derived descriptors and
+series beside the recorded ones. A definition is evaluated again only when the
+records of one of its inputs changed. While a live source streams, evaluation
+runs at most every 250 ms, and while a replay source is still loading it waits
+until loading finishes.
+
+**Edit** loads the selected definition into the form; **Remove** deletes it.
+Definitions belong to the app run, not to the source, so they are evaluated
+again after reloading or switching sources. A definition whose inputs are not
+in the loaded session stays listed and shows in the browser as unavailable with
+the reason (for example `unknown signal 'csv.column.9'`).
+
+### Saving definitions
+
+`AnalysisContext.derived` (a `DerivedSignalSet` from
+`lbr_dashboard.core.derived_session`) holds the applied definitions.
+`configuration()` returns a JSON-compatible dict:
+
+```
+{"version": 1, "definitions": [<DerivedSignalDefinition.to_dict()>, ...]}
+```
+
+`restore_configuration(config)` replaces every definition from such a dict,
+all or nothing: a wrong version, malformed definitions, invalid ids, duplicate
+ids and cycles raise `DefinitionError` and keep the current definitions.
+Missing inputs are not an error; those signals are shown as unavailable until
+a session provides the inputs. Workspace files can store this dict as is.
 
 ## Running the tests
 
 On Windows (PowerShell) or any other platform, from the repository root:
 
 ```
-uv run --locked --extra dev pytest tests/core/test_derived.py
+uv run --locked --extra dev pytest tests/core/test_derived.py tests/core/test_derived_session.py tests/ui/test_derived_signals_tool.py
 ```
+
+To try it by hand, run `uv run --locked lbr-dashboard`, open
+`sample_data\timestamped_demo.csv` with the source picker and use
+**Analysis > Derived signals**.

@@ -2,7 +2,48 @@
 
 `lbr_dashboard.core.annotations` stores timestamped notes that a person adds to
 a recorded session ("brake fade here", "driver change"). It is the storage
-backend for issue #61; there is no UI yet. The module is standard library only.
+backend for issue #61 and is used by the **Analysis > Annotations** tool
+described below. The module is standard library only.
+
+## In the app: Analysis > Annotations
+
+Open a timestamped CSV with the source picker, then choose
+**Analysis > Annotations**. The dock lists the markers of the loaded session
+with their time (exact session seconds; the tooltip shows nanoseconds), label
+(the `category`) and note (the `text`).
+
+- **Add at cursor** adds a marker at the replay cursor's exact session time.
+  Type a label (optional) and a note first; an empty note becomes "Marker".
+- **Add for interval** adds two markers, at the start and at the end of the
+  shared time interval (Analysis > Select visible time range), with the notes
+  "<note> (start)" and "<note> (end)". Interval annotations themselves are
+  left for a later change.
+- Select a row to load its label and note into the fields, then **Save edit**
+  to change them, **Move to cursor** to move the marker to the replay cursor,
+  or **Remove** to delete it.
+- **Go to marker** (or double-click a row) pauses replay and moves the replay
+  cursor to the marker's exact session time. This works whenever the replay
+  slider does; a live source, a loading session or a time outside the
+  recording shows an explanation instead.
+- Every marker is drawn on the main time plot as a dashed vertical line
+  (hover for its note). The lines come back whenever the plot is redrawn,
+  for example after selecting another signal.
+
+For a file-backed session every change is saved at once to the sidecar file
+next to the log (`<log name>.annotations.json`). Opening the file again, also
+after restarting the app, restores the markers. Opening a session never
+creates a file; the first change does. The log is only read.
+
+- If a save fails (read-only folder, full disk), the previous sidecar file and
+  the markers shown stay as they were, and the dock shows the reason in red.
+- If the sidecar cannot be read (invalid JSON, wrong format), the dock shows
+  the reason and adding markers is disabled, so the file is never overwritten.
+  Fix or move the file and open the log again.
+- If the log's content changed since the markers were saved, they are still
+  shown, with a note; the next change attaches them to the current content.
+
+Simulator sessions have no file. Their markers are kept in memory only and are
+lost when another source is opened or the app closes; the dock says so.
 
 ## What an annotation is
 
