@@ -21,6 +21,8 @@ from enum import Enum
 from math import isfinite
 from typing import Protocol
 
+from .signals import SignalDescriptor
+
 EMPTY_TEXT = "--"
 DEFAULT_SIGNIFICANT_DIGITS = 6
 MAX_DECIMAL_PLACES = 9
@@ -79,12 +81,6 @@ class DisplayDescriptor(Protocol):
 
     @property
     def canonical_unit(self) -> str | None: ...
-
-    @property
-    def component_labels(self) -> Sequence[str]: ...
-
-    @property
-    def decimal_places(self) -> int | None: ...
 
 
 class DisplaySample(Protocol):
@@ -178,13 +174,24 @@ def describe_value(
         raise ValueError("max_age_ns must be a non-negative integer")
     if now_ns is not None and _not_int(now_ns):
         raise ValueError("now_ns must be an integer")
-    places = descriptor.decimal_places
+    if isinstance(descriptor, SignalDescriptor):
+        hint = descriptor.display.get("decimal_places")
+        places = hint if type(hint) is int and 0 <= hint <= MAX_DECIMAL_PLACES else None
+        labels = descriptor.display.get("component_labels")
+        component_labels = (
+            tuple(label for label in labels if isinstance(label, str))
+            if isinstance(labels, tuple) and all(isinstance(label, str) for label in labels)
+            else ()
+        )
+    else:
+        places = getattr(descriptor, "decimal_places", None)
+        component_labels = tuple(getattr(descriptor, "component_labels", ()))
     if places is not None and (_not_int(places) or not 0 <= places <= MAX_DECIMAL_PLACES):
         raise ValueError(f"decimal_places must be an integer from 0 to {MAX_DECIMAL_PLACES}")
 
     declared = descriptor.data_type
     value_type = TYPE_ALIASES.get(declared, declared)
-    unit = descriptor.canonical_unit or ""
+    unit = getattr(sample, "unit", None) or descriptor.canonical_unit or ""
 
     def record(
         state: ValueState,
@@ -259,7 +266,7 @@ def describe_value(
             age_ns,
         )
     try:
-        text = _format_value(value_type, sample.value, descriptor)
+        text = _format_value(value_type, sample.value, places, unit, component_labels)
     except _InvalidValue as error:
         return record(ValueState.INVALID, EMPTY_TEXT, f"invalid: {error}", timestamp_ns, age_ns)
 
@@ -293,9 +300,13 @@ def format_seconds(value_ns: int) -> str:
     return f"{sign}{whole}.{digits} s"
 
 
-def _format_value(value_type: str, value: object, descriptor: DisplayDescriptor) -> str:
-    places = descriptor.decimal_places
-    unit = descriptor.canonical_unit
+def _format_value(
+    value_type: str,
+    value: object,
+    places: int | None,
+    unit: str,
+    component_labels: tuple[str, ...],
+) -> str:
     if value_type == NUMERIC:
         return _with_unit(format_number(_finite(value, "value"), places), unit)
     if value_type == INTEGER:
@@ -314,7 +325,7 @@ def _format_value(value_type: str, value: object, descriptor: DisplayDescriptor)
         if isinstance(value, int) and not isinstance(value, bool):
             return f"[code {value}]"
         raise _InvalidValue(f"expected a status label or code, got {_kind(value)}")
-    return _format_vector(value, descriptor, places, unit)
+    return _format_vector(value, component_labels, places, unit)
 
 
 def _format_integer(value: object) -> str:
@@ -328,14 +339,11 @@ def _format_integer(value: object) -> str:
     return str(value)
 
 
-def _format_vector(
-    value: object, descriptor: DisplayDescriptor, places: int | None, unit: str | None
-) -> str:
+def _format_vector(value: object, labels: tuple[str, ...], places: int | None, unit: str) -> str:
     if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
         raise _InvalidValue(f"expected a sequence of numbers, got {_kind(value)}")
     if not value:
         raise _InvalidValue("vector has no components")
-    labels = tuple(descriptor.component_labels)
     if labels and len(labels) != len(value):
         raise _InvalidValue(f"vector has {len(value)} components, expected {len(labels)}")
     parts = [
