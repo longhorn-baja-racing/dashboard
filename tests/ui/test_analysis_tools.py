@@ -179,7 +179,9 @@ def test_tool_plots_follow_theme_changes_and_are_released_with_their_widget(qtbo
     context.style_plot(plot)
     context.set_plot_colors("#ffffff", "#101010")
     assert plot.backgroundBrush().color().name() == "#ffffff"
-    assert plot.getPlotItem().getAxis("left").textPen().color().name() == "#101010"
+    item = plot.getPlotItem()
+    assert item is not None
+    assert item.getAxis("left").textPen().color().name() == "#101010"
     plot.deleteLater()
     qtbot.waitUntil(lambda: context.receivers("2theme_changed()") == 0)
     context.set_plot_colors("#000000", "#eeeeee")
