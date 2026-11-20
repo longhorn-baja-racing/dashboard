@@ -72,7 +72,18 @@ class MultiTracePlot(TimePlot):
             self._fit_visible_y = True
             self._schedule()
 
-    def add(self, descriptor: SignalDescriptor, axis: Axis | None = None) -> None:
+    def add(
+        self,
+        descriptor: SignalDescriptor,
+        axis: Axis | None = None,
+        *,
+        color: str | None = None,
+        visible: bool = True,
+    ) -> None:
+        """Add a trace; ``color`` and ``visible`` restore a saved trace style."""
+
+        if color is not None and fullmatch(r"#[0-9a-fA-F]{6}", color) is None:
+            raise ValueError("Trace colors must look like #rrggbb.")
         if self.snapshot is None:
             raise ValueError("Choose a source before adding a trace.")
         if descriptor.identifier in self.bindings:
@@ -89,7 +100,11 @@ class MultiTracePlot(TimePlot):
                 "Both axes are assigned. Use a compatible unit or another plot widget."
             )
         candidate = TraceBinding(
-            descriptor.identifier, descriptor.source_id, unit, axis, self._color(descriptor)
+            descriptor.identifier,
+            descriptor.source_id,
+            unit,
+            axis,
+            color if color is not None else self._color(descriptor),
         )
         self.bindings[descriptor.identifier] = candidate
         try:
@@ -97,7 +112,10 @@ class MultiTracePlot(TimePlot):
         except ValueError:
             del self.bindings[descriptor.identifier]
             raise
+        if color is not None:
+            self._colors[(descriptor.source_id, descriptor.identifier)] = color
         self._rebuild_curves()
+        self.curves[descriptor.identifier].setVisible(visible)
         self.fit()
 
     def display_color(self, color: str) -> str:

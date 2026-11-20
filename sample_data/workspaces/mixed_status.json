@@ -1,6 +1,6 @@
 {
   "format": "lbr-dashboard-workspace",
-  "version": 1,
+  "version": 2,
   "name": "Mixed numeric and status example",
   "description": "Numeric traces with discrete status signals on a shared timeline. Signal IDs match column names in sample_data/sample_baja_log.csv.",
   "widgets": [

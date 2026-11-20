@@ -39,6 +39,15 @@ that is no longer loaded.
 
 The dock is created the first time the menu entry is used and reused after that.
 
+Open tool docks are saved in workspaces (Workspace menu, #49) by their key and
+position. A tool that has user settings can also provide
+`configuration() -> dict` and `restore_configuration(dict)`. The dictionary must
+be plain JSON (at most 16 KiB, no file paths, ports or credentials, no
+telemetry arrays); it is stored as the widget's `settings`. A settings object
+the format refuses is left out of the file with a status-bar note, and if
+`restore_configuration` raises, the tool opens with its defaults and the user
+is told. Tools without these methods are restored with their defaults.
+
 ## Tools
 
 | Menu entry | Module | Issue |

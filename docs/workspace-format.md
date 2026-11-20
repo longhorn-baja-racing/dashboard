@@ -1,13 +1,14 @@
-# Workspace file format (version 1)
+# Workspace file format (version 2)
 
 A workspace describes which widgets the dashboard shows, how they are arranged,
 and which signals they display. It is a small JSON document that can be shared
 between team members and machines. The format and its validator live in
 `lbr_dashboard.workspace` and do not depend on Qt.
 
-This is the format only (#112). The workspace manager UI, import/export and
-layout restore belong to #49, real dock geometry to #37, and resolving signal
-IDs against the signal registry to #36.
+The **Workspace** menu saves, opens, imports and exports these files; see
+`docs/workspace-docks.md`. Version 2 (#49) adds dock placement, hidden plot
+traces and analysis tool docks. Version 1 files still open; see
+[Versions and migration](#versions-and-migration).
 
 ## What a workspace never contains
 
@@ -22,13 +23,19 @@ IDs against the signal registry to #36.
   `api_key` or `private_key` are refused.
 - Code. Files are only ever parsed as JSON. Nothing is imported, evaluated or
   unpickled.
+- Source identities. Bindings name signal IDs only. A CSV source is identified
+  by its file path, so a binding resolves against whichever open session
+  provides that signal ID.
+- Pixel geometry or screen positions. The layout records arrangement and
+  relative sizes, so it survives other monitors, DPI scaling and systems.
+- The theme. Theme stays a local preference.
 
 ## Example
 
 ```json
 {
   "format": "lbr-dashboard-workspace",
-  "version": 1,
+  "version": 2,
   "name": "Engine temperature and pressure",
   "widgets": [
     {
@@ -57,12 +64,23 @@ Complete examples, in the exact form the serializer writes them:
   separate axes plus value cards.
 - `sample_data/workspaces/mixed_status.json`: numeric traces, discrete status
   signals on an event timeline, tabs, a raw table and an extension.
+- `sample_data/workspaces/generic_demo.json`: the demo overview preset that
+  **Workspace > Open demo workspace** opens (#45). It is generated from
+  `lbr_dashboard.workspace.presets`, and a test keeps the two identical.
 
-Their signal IDs are illustrative. The mixed example uses column names from
-`sample_data/sample_baja_log.csv`; the numeric example uses the column names of
-the generic environment fixture from #105. The exact IDs a CSV adapter produces
-are decided in #31. Until then, any binding that does not match is simply
-reported as unresolved.
+The signal IDs of the first two are illustrative. The mixed example uses column
+names from `sample_data/sample_baja_log.csv`; the numeric example uses the
+column names of the generic environment fixture from #105. A binding that does
+not match the open session is shown as a repairable placeholder.
+
+The demo preset binds the real IDs of the bundled demo sources: the process
+simulator (`process.pressure`, `process.temperature`, `process.status`), the
+motion simulator (`motion.speed`, `motion.enabled`, `motion.vector`) and
+`sample_data/timestamped_demo.csv` (`csv.column.1` to `csv.column.3`). Those
+cover numeric, boolean, status, vector and string signals at different rates.
+Whichever source is open, its widgets fill in and the rest show placeholders;
+the Statistics tool follows the signal selected in the browser. No vehicle
+sensor, IMU channel or calibration is assumed.
 
 ## Fields
 
@@ -71,7 +89,7 @@ Top level (unknown fields are rejected):
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `format` | yes | Always `lbr-dashboard-workspace`. |
-| `version` | yes | Positive integer. This build reads version 1. |
+| `version` | yes | Positive integer. This build reads versions 1 and 2 and writes 2. |
 | `name` | yes | Display name, up to 200 characters. |
 | `description` | no | Up to 2000 characters; newlines and tabs allowed. |
 | `widgets` | yes | 1 to 64 widget objects. |
@@ -83,10 +101,19 @@ Widget:
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `id` | yes | Stable instance ID: lowercase letters and digits joined by `.`, `-` or `_`, starting with a letter. Unique per workspace. |
-| `type` | yes | One of `time_plot`, `value_cards`, `event_timeline`, `raw_table`. |
+| `type` | yes | One of `time_plot`, `value_cards`, `event_timeline`, `raw_table`, `analysis_tool`. |
 | `title` | no | Display title. |
 | `axes` | no | `time_plot` only. Up to 8 axis preferences. |
 | `bindings` | no | Up to 64 signal bindings. |
+| `area` | no | Window edge of the dock: `left`, `right`, `top` or `bottom`. Default `bottom` for analysis tools, `right` otherwise. |
+| `hidden` | no | `true` when the dock is closed but kept (its Workspace menu entry shows it again). |
+| `floating` | no | `true` when the dock floats; the dashboard picks its position. |
+| `tool` | `analysis_tool` only | Analysis menu key, for example `statistics`. |
+| `settings` | no | `analysis_tool` only. The tool's own `configuration()` object, checked like `extensions` (16 KiB, no credentials, paths or telemetry). |
+
+Event timelines and raw tables are not available as docks yet. They and any
+analysis tool this build does not know are opened as placeholders that keep
+their saved configuration when the workspace is saved again.
 
 Axis preference (`time_plot` only): `id` (required, unique within the widget),
 `side` (`left` or `right`, default `left`), `label`, `unit` (a display label;
@@ -95,8 +122,10 @@ minimum < maximum; omit for auto range). Range ends and split weights must be
 finite numbers that fit in a double; larger integers are rejected.
 
 Signal binding: `signal` (required descriptor ID, opaque to the workspace),
-`label`, `color` (`#rrggbb`), and `axis` (`time_plot` only; must name one of
-the widget's axes).
+`label`, `color` (`#rrggbb`), `axis` (`time_plot` only; must name one of the
+widget's axes) and `hidden` (`time_plot` only; `true` for a trace hidden from
+its legend). A plot binding without an axis is assigned one automatically. A
+value widget shows its first binding and keeps the others for saving.
 
 Layout nodes, nested at most 8 deep, each with at most 16 children:
 
@@ -107,6 +136,14 @@ Layout nodes, nested at most 8 deep, each with at most 16 children:
 
 Every widget must appear in the layout exactly once, and the layout may only
 reference defined widgets.
+
+How the dashboard maps the tree to docks: a subtree whose widgets share one
+`area` is placed on that window edge, with splits side by side (`horizontal`)
+or stacked (`vertical`) and `weights` as relative sizes. A node that mixes
+areas only groups its children. Docks cannot split inside a tab group, so
+everything under a `tabs` node becomes one tab group, and `current` is the
+tab shown first. When saving, the dashboard writes one subtree per window edge
+(left, right, top, bottom), followed by that edge's hidden and floating docks.
 
 ## Python API
 
@@ -138,7 +175,7 @@ Issue codes: `type`, `required`, `unknown_field`, `invalid_value`, `too_long`,
 `too_many`, `too_large`, `too_deep`, `duplicate_id`, `duplicate_placement`,
 `unplaced_widget`, `unknown_reference`, `unknown_widget_type`,
 `unknown_format`, `future_version`, `unsupported_version`, `machine_local`,
-`secret`, `json`, `decode`, `io`.
+`secret`, `json`, `decode`, `io`, `overwrite_refused`.
 
 ## Saving and recovery
 
@@ -146,11 +183,14 @@ Issue codes: `type`, `required`, `unknown_field`, `invalid_value`, `too_long`,
 flushes it to disk and atomically replaces the target, so a crash or full disk
 leaves either the old file or the new file, never a mix. Before replacing, a
 valid existing file is copied to `<name>.bak`. A damaged primary never
-overwrites a good backup.
+overwrites a good backup. A file written by a newer dashboard version, or one
+that is not a workspace at all, is never replaced (`overwrite_refused`).
 
 `load_workspace(path)` falls back to `<name>.bak` when the primary cannot be
 read or fails validation, and reports `recovered=True` with the primary's error.
 It never modifies files. If both are unusable, the primary's error is raised.
+A primary from a newer version is reported as `future_version` and is never
+replaced by its older backup.
 
 ## Versions and migration
 
@@ -159,7 +199,11 @@ refused with `future_version` instead of being guessed at. Older versions are
 upgraded by functions registered in `lbr_dashboard.workspace.MIGRATIONS`, keyed
 by the version they upgrade from. Each step receives a private copy, so the
 input is never modified, and the result is validated like any other document.
-Version 1 is the first published format, so the registry is empty today.
+
+| Version | Change |
+| --- | --- |
+| 1 | First published format. |
+| 2 | Adds widget `area`, `hidden`, `floating`, the `analysis_tool` type with `tool` and `settings`, and binding `hidden`. Every valid version 1 file is valid version 2 data, so the upgrade only changes the version number. `tests/workspace/fixtures/` keeps version 1 copies of the examples. |
 
 When a change is needed: bump `CURRENT_VERSION`, add a migration from the
 previous version, keep a fixture of the old format, and test the upgrade.
@@ -178,3 +222,4 @@ previous version, keep a fixture of the old format, and test the upgrade.
 | Names, titles, labels, units | 200 characters |
 | Description | 2000 characters |
 | Extensions | 16 KiB, arrays of at most 64 entries |
+| Analysis tool settings | 16 KiB per tool, arrays of at most 64 entries |

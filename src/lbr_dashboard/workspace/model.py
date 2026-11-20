@@ -11,14 +11,20 @@ JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
 
 WORKSPACE_FORMAT = "lbr-dashboard-workspace"
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
-#: Widget type IDs understood by version 1. Coordinate new names with the
-#: widget owners (#37 docking, #38/#39 plots, #109 values, #110 timelines).
-WIDGET_TYPES = frozenset({"time_plot", "value_cards", "event_timeline", "raw_table"})
+#: Widget type IDs. Coordinate new names with the widget owners (#37 docking,
+#: #38/#39 plots, #109 values, #110 timelines). ``analysis_tool`` was added in
+#: version 2 for docks opened from the Analysis menu.
+WIDGET_TYPES = frozenset(
+    {"time_plot", "value_cards", "event_timeline", "raw_table", "analysis_tool"}
+)
 
 #: Widget types whose bindings may reference a per-widget axis.
 AXIS_WIDGET_TYPES = frozenset({"time_plot"})
+
+#: Main-window edges a dock can be attached to (version 2).
+DOCK_AREAS = frozenset({"left", "right", "top", "bottom"})
 
 AXIS_SIDES = frozenset({"left", "right"})
 SPLIT_ORIENTATIONS = frozenset({"horizontal", "vertical"})
@@ -77,17 +83,32 @@ class SignalBinding:
     label: str | None = None
     color: str | None = None
     axis: str | None = None
+    hidden: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class WidgetConfig:
-    """One widget instance with a stable ID and its signal bindings."""
+    """One widget instance with a stable ID and its signal bindings.
+
+    ``area``, ``hidden`` and ``floating`` describe where its dock sits in the
+    main window. ``tool`` and ``settings`` are only used by ``analysis_tool``
+    widgets: the Analysis menu key and the tool's own JSON configuration.
+    """
 
     id: str
     type: str
     title: str | None = None
     bindings: tuple[SignalBinding, ...] = ()
     axes: tuple[AxisPreference, ...] = ()
+    area: str | None = None
+    hidden: bool = False
+    floating: bool = False
+    tool: str | None = None
+    settings: Mapping[str, JsonValue] | None = None
+
+    def __post_init__(self) -> None:
+        if self.settings is not None:
+            object.__setattr__(self, "settings", freeze_json(dict(self.settings)))
 
 
 @dataclass(frozen=True, slots=True)

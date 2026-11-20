@@ -38,6 +38,7 @@ from .right_panel import RightPanel
 from .source_picker import SourcePicker
 from .tools import TOOLS
 from .top_menu_bar import TopMenuBar
+from .workspace_manager import WorkspaceManager
 
 
 class CsvLoader(Protocol):
@@ -180,6 +181,7 @@ class MainWindow(QMainWindow):
         )
         self.analysis = AnalysisContext(self)
         self.analysis_docks = AnalysisDocks(self, self.analysis, TOOLS)
+        self.workspace_manager = WorkspaceManager(self, self.workspace_docks, self.analysis_docks)
         self.open_button.clicked.connect(self.open_csv)
         self.demo_button.clicked.connect(self.try_demo)
         self.cancel_button.clicked.connect(self.cancel_import)
