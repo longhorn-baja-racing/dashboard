@@ -544,11 +544,12 @@ def test_migration_is_deterministic_and_leaves_input_untouched() -> None:
 
 
 def test_migration_gaps_and_bad_results_are_refused() -> None:
+    old = dict(minimal(), version=1)
     with pytest.raises(WorkspaceError) as caught:
-        migrate_document(minimal(), migrations={}, current_version=2)
+        migrate_document(old, migrations={}, current_version=2)
     assert caught.value.codes == {"unsupported_version"}
     with pytest.raises(WorkspaceError) as caught:
-        migrate_document(minimal(), migrations={1: lambda data: []}, current_version=2)  # type: ignore[dict-item]
+        migrate_document(old, migrations={1: lambda data: []}, current_version=2)  # type: ignore[dict-item]
     assert caught.value.codes == {"type"}
 
 
@@ -558,7 +559,9 @@ def test_migrated_documents_are_validated_like_any_other() -> None:
         return data
 
     with pytest.raises(WorkspaceError) as caught:
-        workspace_from_dict(minimal(), migrations={1: add_secret}, current_version=2)
+        workspace_from_dict(
+            dict(minimal(), version=1), migrations={1: add_secret}, current_version=2
+        )
     assert caught.value.codes == {"machine_local"}
 
 

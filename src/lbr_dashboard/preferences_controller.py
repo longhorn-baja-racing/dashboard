@@ -7,6 +7,10 @@ from .core.preferences import Preferences, PreferencesError, PreferencesStore, R
 from .ui.main_window import MainWindow
 from .ui.theme import apply_theme
 
+#: Machine-local preference holding the absolute path of the last saved or
+#: opened workspace file, reopened at startup.
+LAST_WORKSPACE = "last_workspace"
+
 
 class PreferencesController:
     def __init__(self, window: MainWindow, store: PreferencesStore | None = None) -> None:
@@ -22,6 +26,11 @@ class PreferencesController:
         self._display()
         if warning:
             window.statusBar().showMessage(warning)
+        manager = window.workspace_manager
+        manager.path_changed.connect(self.remember_workspace)
+        last = self.current.extra.get(LAST_WORKSPACE)
+        if store is not None and isinstance(last, str) and last:
+            manager.restore_last(last)
 
     def _display(self) -> None:
         self.window.set_preference_choices(
@@ -53,3 +62,22 @@ class PreferencesController:
 
     def clear_recent(self) -> None:
         self._commit(replace(self.current, recent_sources=()))
+
+    def remember_workspace(self, path: object) -> None:
+        """Store the current workspace file locally; None forgets it."""
+
+        extra = dict(self.current.extra)
+        if isinstance(path, str):
+            extra[LAST_WORKSPACE] = str(Path(path).resolve())
+        else:
+            extra.pop(LAST_WORKSPACE, None)
+        if extra == dict(self.current.extra):
+            return
+        candidate = replace(self.current, extra=extra)
+        try:
+            if self.store is not None:
+                self.store.save(candidate)
+        except PreferencesError as error:
+            self.window.statusBar().showMessage(str(error))
+            return
+        self.current = candidate

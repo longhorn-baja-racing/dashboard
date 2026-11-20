@@ -54,12 +54,29 @@ def _write_atomically(path: Path, data: bytes) -> None:
         raise
 
 
+#: Existing files with these problems are someone else's data, not a damaged
+#: copy of ours, so saving refuses to replace them.
+_PROTECTED = frozenset({"future_version", "unknown_format"})
+
+
+def _refuse_overwrite(path: Path, error: WorkspaceError) -> WorkspaceError:
+    reason = (
+        "it was written by a newer dashboard version"
+        if "future_version" in error.codes
+        else "it is not a dashboard workspace file"
+    )
+    message = f"will not replace this file because {reason}; choose another file name"
+    return WorkspaceError([WorkspaceIssue(str(path), "overwrite_refused", message)])
+
+
 def save_workspace(path: Path, workspace: Workspace) -> None:
     """Validate, then atomically write ``workspace`` to ``path``.
 
     If ``path`` already holds a valid workspace it is first copied to the
     backup file, so a later corrupt or truncated primary can be recovered.
-    A failure at any point leaves the existing file untouched.
+    A file written by a newer dashboard, or a file that is not a workspace at
+    all, is never replaced. A failure at any point leaves the existing file
+    untouched.
     """
 
     data = dumps_workspace(workspace).encode("ascii")
@@ -67,8 +84,11 @@ def save_workspace(path: Path, workspace: Workspace) -> None:
         if path.exists():
             try:
                 read_workspace(path)
-            except WorkspaceError:
-                pass  # Never let a damaged primary overwrite a good backup.
+            except WorkspaceError as error:
+                if error.codes & _PROTECTED:
+                    raise _refuse_overwrite(path, error) from None
+                # Otherwise a damaged primary is replaced, but never copied
+                # over a good backup.
             else:
                 _write_atomically(backup_path(path), path.read_bytes())
         _write_atomically(path, data)
@@ -91,14 +111,16 @@ def load_workspace(path: Path, *, use_backup: bool = True, **options: Any) -> Lo
 
     When recovery happens, ``primary_error`` explains what was wrong with the
     primary so the UI can tell the user. If both fail, the primary's error is
-    raised. Nothing on disk is modified.
+    raised. A primary from a newer dashboard version is reported as such and
+    never replaced by its backup. Nothing on disk is modified.
     """
 
     try:
         return LoadResult(read_workspace(path, **options), path)
     except WorkspaceError as primary:
         backup = backup_path(path)
-        if not use_backup or not backup.exists():
+        # A newer file is not damaged; an older backup must not stand in for it.
+        if not use_backup or not backup.exists() or "future_version" in primary.codes:
             raise
         try:
             workspace = read_workspace(backup, **options)

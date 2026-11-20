@@ -3,10 +3,75 @@
 `lbr_dashboard.core.source_health` tracks whether a telemetry source is
 connected, whether its data is current, and how much loss the dashboard can
 actually observe (issue #44). It is standard library only, has no I/O and never
-reads the wall clock. `lbr_dashboard.ui.source_health_panel.SourceHealthPanel`
-is a text readout of one snapshot. Neither is wired into the main window yet.
+reads the wall clock. `lbr_dashboard.core.source_monitor.SourceHealthMonitor`
+feeds it from a running source, and
+`lbr_dashboard.ui.source_health_panel.SourceHealthPanel` is a text readout of
+one snapshot.
 
-## Feeding the tracker
+## In the app
+
+- **Source picker**: a `Source health:` line beside the status line always shows
+  the headline state, the arrival age of the newest data (rounded to 0.1 s),
+  the packet rate once a full window has passed, and the observable loss
+  (`loss unknown (no sequence numbers)` when the source has none). Dashboard
+  drops and decode errors are added when they are not zero. The label carries
+  a `healthStatus` property (`live`, `late`, `stale`, `waiting for data`,
+  `disconnected`, `unknown`) for style sheets; the words alone tell the states
+  apart.
+- **Analysis > Source health** opens a dock with every row of
+  `format_source_health`, followed by one `Signal <id>` row per signal with its
+  record count, unavailable readings and last arrival age judged with the same
+  thresholds. It repaints at most every 200 ms.
+
+The source controller creates one monitor per started source, hands it every
+batch it drains (`TelemetrySession.ingest_source(..., observer=...)`) and
+publishes `monitor.report()` on every poll as
+`AnalysisContext.source_health` (signal `source_health_changed`). The report
+of the last source stays visible after a disconnect until another source
+starts; a legacy table import clears it.
+
+## Feeding the tracker from a source
+
+`SourceHealthMonitor(source, clock=...)` maps the source contract onto tracker
+observations:
+
+| Contract | Tracker input |
+| --- | --- |
+| `source.state` OPEN / RUNNING | `observe_connect()` on the change |
+| `source.state` STOPPING / STOPPED / CLOSED | `observe_disconnect(reason="stopped")` |
+| `source.state` ENDED | `observe_disconnect(reason="end of data")` (or the terminal reason) |
+| `source.state` FAILED | `observe_disconnect(reason="failed: <last error>")` |
+| RECORD event | `observe_packet(...)`, timed when the batch is handed over |
+| HEALTH event | `observe_reported_status(...)` with the contract fields; also `observe_heartbeat()` when declared |
+| ERROR event with code `decode_error` | `observe_decode_error(...)` when declared |
+| growth of `source.events.stats.dropped_records` while connected | `observe_overflow(dropped)` |
+
+CREATED and OPENING leave the connection as it was. Records the bounded queue
+rejects after the source was stopped are not counted as drops.
+`SourceHealth.dropped_records` is what the source reports (for the simulator
+it includes scheduled loss) and is shown under `Reported: dropped_records`,
+never merged into the dashboard's own counters. Session retention (the live
+1,000 readings per signal limit) is not loss and is not counted.
+
+A source declares the health metadata it provides with an optional
+`health_config` attribute holding a `SourceHealthConfig`. Without it, sequence
+numbers, heartbeat and decode errors are unknown. Dashboard drops are always
+known, because every source has a bounded queue. The live simulator declares a
+heartbeat with a timeout of twice its 1 s health interval; the finite simulators
+and CSV replay declare none.
+
+A source that declares `sequence_bits` puts each packet's number in
+`SignalSample.extra["sequence"]`. Consecutive records of different signals with
+the same number are one packet; the same signal again with the same number
+starts a new packet (a duplicate). Records without a number, or with one that
+does not fit the declared bits, count for freshness and rate only.
+
+The monitor does not feed device time: per-signal measurement times of
+multi-signal sources (for example CSV columns) are not in arrival order, so
+the `Device time` row stays unknown. Measurement time is shown by the replay
+clock and the plots instead.
+
+## Tracker observations
 
 The code that owns a source creates one `SourceHealthTracker` per source and
 feeds it plain observations from the thread that owns the source:
@@ -206,21 +271,8 @@ It is shown in rows labelled `Reported: <name>` with its arrival age and is
 never mixed into inferred counters: a reported `sd_dropped` does not change
 `overflow_dropped` or `sequence.lost`.
 
-## Mapping to the source contract (#20)
-
-The planned `SourceHealth` / `SourceEvent` contract can feed the tracker
-without changing this module:
-
-| Contract | Tracker input |
-| --- | --- |
-| `SourceState` OPEN / RUNNING | `observe_connect()` |
-| `SourceState` ENDED / STOPPED / CLOSED / FAILED, `terminal_reason` | `observe_disconnect(reason=...)` |
-| RECORD event | `observe_packet(...)` |
-| ERROR event for a decode failure | `observe_decode_error(message=...)` |
-| `SourceHealth.dropped_records`, queue `dropped_records` (as increments) | `observe_overflow(dropped)` |
-| HEALTH event fields from the firmware | `observe_reported_status(...)` |
-
 ## Not covered yet
 
-- Wiring a live adapter and the panel into the main window.
+- A hardware smoke test with a real serial adapter (#33); so far only the
+  simulators, CSV replay and fake sources drive the monitor.
 - Radio-specific metrics and the historical report view (#71).

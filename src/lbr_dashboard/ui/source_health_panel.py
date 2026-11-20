@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.source_health import SourceHealthSnapshot, format_source_health, status_text
+from ..core.source_monitor import SourceMonitorReport, signal_arrival_rows
 
 EMPTY_MESSAGE = "No source"
 EMPTY_STATUS = "Status: unknown (no health data)"
@@ -53,6 +54,12 @@ class SourceHealthPanel(QWidget):
         self.status.setText(f"Status: {status_text(snapshot)}")
         self.status.setProperty("healthStatus", snapshot.status.value)
         self._set_rows(format_source_health(snapshot))
+
+    def show_report(self, report: SourceMonitorReport) -> None:
+        """Show source health followed by one row per signal's arrivals."""
+
+        self.show_snapshot(report.health)
+        self._set_rows(self._rows + signal_arrival_rows(report))
 
     def clear(self) -> None:
         self.title.setText(EMPTY_MESSAGE)
