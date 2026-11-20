@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QAbstractItemView, QFileDialog
 from .core import (
     BackgroundService,
     CancellationToken,
+    SessionSnapshot,
     SignalSchema,
     SimulatorSource,
     SourceState,
@@ -57,8 +58,10 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
+        # The snapshot the views show: the session snapshot plus transformed signals.
+        self._view: SessionSnapshot | None = None
         self.replay = ReplayController(window)
-        for family in ("process", "motion", "live"):
+        for family in ("process", "motion", "attitude", "live"):
 
             def prepare(token, family=family):
                 token.raise_if_cancelled()
@@ -77,6 +80,7 @@ class SourceController(QObject):
         window.source_picker.rate_requested.connect(lambda: self.operate("rate"))
         window.left_panel.list_widget.currentRowChanged.connect(self.select)
         window.left_panel.signal_browser.signal_selected.connect(self.select_signal)
+        window.analysis.frames_changed.connect(self._frames_changed)
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.poll)
@@ -177,6 +181,7 @@ class SourceController(QObject):
         if self.source is not None or self._preparing is not None or self.session is not None:
             self.disconnect()
             self.session = None
+            self._view = None
             self.window.workspace_docks.update_snapshot(None)
             self.window.analysis.clear()
             self.window.analysis_docks.leave_plot()
@@ -217,6 +222,7 @@ class SourceController(QObject):
             self.window.display_telemetry_source()
             self._notice = ""
             self._revision = -1
+            self._view = None
             self._displayed_schema = None
             self._finished_rendered = False
         except Exception as error:
@@ -356,16 +362,24 @@ class SourceController(QObject):
     def select_signal(self, identifier: str) -> None:
         if self.session is None or not identifier:
             return
+        schema = self._view.schema if self._view is not None else self.session.schema
         self._selected = next(
-            (i for i, d in enumerate(self.session.schema.signals) if d.identifier == identifier), -1
+            (i for i, d in enumerate(schema.signals) if d.identifier == identifier), -1
         )
         self._render()
         self.replay.present()
 
+    def _frames_changed(self) -> None:
+        """Show the results of changed coordinate-frame transforms right away."""
+        if self.session is not None:
+            self._render()
+
     def _render(self) -> None:
         if self.session is None:
             return
-        snapshot = self.session.snapshot()
+        # Transformed signals are added beside the raw ones; raw records stay unchanged.
+        snapshot = self.window.analysis.frames.augment(self.session, self.session.snapshot())
+        self._view = snapshot
         self.window.workspace_docks.update_snapshot(snapshot)
         self.window.analysis.set_snapshot(self.session, snapshot)
         descriptors = snapshot.schema.signals

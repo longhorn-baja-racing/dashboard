@@ -26,6 +26,7 @@ class SourcePicker(QGroupBox):
         self.choices.addItem("CSV replay - timestamp_ms preset", "csv")
         self.choices.addItem("Simulator - process (finite)", "process")
         self.choices.addItem("Simulator - motion (finite)", "motion")
+        self.choices.addItem("Simulator - attitude (finite)", "attitude")
         self.choices.addItem("Simulator - process (live)", "live")
         self.connect_button = QPushButton("Open CSV / Connect")
         self.disconnect_button = QPushButton("Disconnect")

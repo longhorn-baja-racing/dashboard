@@ -18,6 +18,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
 
 from ..core import SessionSnapshot, SignalDescriptor
+from ..core.frames import FrameTransformSet
 from ..core.interval import IntervalSelection, TimeInterval
 from .interval_region import IntervalRegion, PlotTimeScale
 from .plot_style import apply_plot_colors
@@ -32,6 +33,8 @@ def is_numeric(descriptor: SignalDescriptor | None) -> bool:
 class AnalysisContext(QObject):
     """The session, signal, cursor and interval that every analysis tool shares."""
 
+    # Emitted when the applied coordinate-frame transforms change.
+    frames_changed = Signal()
     snapshot_changed = Signal()
     signal_changed = Signal()
     cursor_changed = Signal()
@@ -46,6 +49,10 @@ class AnalysisContext(QObject):
         self.cursor_ns: int | None = None
         self.selection = IntervalSelection()
         self.plot_colors = ("#202020", "#eeeeee")
+        # Applied frame transforms outlive any one session; the source controller
+        # adds their results to every snapshot it shows.
+        self.frames = FrameTransformSet()
+        self.frames.subscribe(self.frames_changed.emit)
         self._descriptors: dict[str, SignalDescriptor] = {}
         self.selection.subscribe(lambda _interval: self.interval_changed.emit())
 

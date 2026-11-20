@@ -15,6 +15,7 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `frames` | the applied coordinate-frame transforms (`core.frames.FrameTransformSet`); their results are part of `snapshot`, see [coordinate-frames.md](coordinate-frames.md) | `frames_changed` |
 
 Helpers:
 

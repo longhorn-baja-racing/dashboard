@@ -9,7 +9,9 @@ Start the dashboard on Windows with `uv run --locked lbr-dashboard`. The
    against measurement time; structured status values appear in the table.
 2. Choose **Simulator - motion (finite)** and connect. The previous source
    closes before the new one starts. Signal names, units, types and values
-   come from the selected adapter's schema.
+   come from the selected adapter's schema. **Simulator - attitude (finite)**
+   is a fictional quaternion and 3-vector demo for **Analysis > Orientation**
+   and **Analysis > Coordinate frames**.
 3. **Retry / Restart** creates a fresh run of the last requested source. The
    finite simulators use seed 7, so retry gives the same readings.
 4. Choose **Simulator - process (live)** to watch new readings arrive. Press
