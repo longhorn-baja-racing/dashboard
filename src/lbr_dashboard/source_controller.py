@@ -178,6 +178,8 @@ class SourceController(QObject):
             self.disconnect()
             self.session = None
             self.window.workspace_docks.update_snapshot(None)
+            self.window.analysis.clear()
+            self.window.analysis_docks.leave_plot()
             self._legacy_loaded = True
             self._notice = (
                 "Legacy CSV table loaded. Use the source picker for timestamped sessions."
@@ -365,6 +367,7 @@ class SourceController(QObject):
             return
         snapshot = self.session.snapshot()
         self.window.workspace_docks.update_snapshot(snapshot)
+        self.window.analysis.set_snapshot(self.session, snapshot)
         descriptors = snapshot.schema.signals
         browser = self.window.left_panel.signal_browser
         previous_id = browser.selected_id
@@ -399,8 +402,10 @@ class SourceController(QObject):
         self.window.left_panel.list_widget.hide()
         browser.show()
         if not 0 <= self._selected < len(descriptors):
+            self.window.analysis.set_selected(None)
             return
         descriptor = descriptors[self._selected]
+        self.window.analysis.set_selected(descriptor.identifier)
         browser.select_id(descriptor.identifier)
         records = snapshot.series[descriptor.identifier]
         # The table shows a fixed number of original records independently of the plot window.
@@ -444,4 +449,5 @@ class SourceController(QObject):
             (records[0].sample.timestamp_ns, records[-1].sample.timestamp_ns),
             lambda start, end: snapshot.range(descriptor.identifier, start, end, neighbors=True),
         )
+        self.window.analysis_docks.follow_plot(panel.plot_widget, panel.time_plot.origin_ns)
         panel.fit_plot.show()

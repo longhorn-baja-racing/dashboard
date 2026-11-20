@@ -52,6 +52,10 @@ class StatisticsPanel(QWidget):
         self.title.setText("Interval statistics")
         self._set_rows(rows)
 
+    def show_current(self, current: CurrentValue) -> None:
+        self.title.setText("Current value")
+        self._set_rows(format_current_value(current))
+
     def clear(self) -> None:
         self.title.setText(EMPTY_MESSAGE)
         self._set_rows([])
