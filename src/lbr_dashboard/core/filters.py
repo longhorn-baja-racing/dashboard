@@ -235,11 +235,13 @@ def _window_means(
 
     window = kernel.size
     with np.errstate(over="ignore", invalid="ignore"):
-        means = np.convolve(segment, kernel, mode="valid") / window
+        means = np.asarray(np.convolve(segment, kernel, mode="valid") / window, dtype=np.float64)
         if not np.isfinite(means).all():
             # Finite values near the float limit can overflow while summing even
             # though their mean is representable; scale before summing instead.
-            means = np.convolve(segment / window, kernel, mode="valid")
+            means = np.asarray(
+                np.convolve(segment / window, kernel, mode="valid"), dtype=np.float64
+            )
     means[~np.isfinite(means)] = np.nan
     return means
 
