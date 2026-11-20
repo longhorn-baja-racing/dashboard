@@ -20,6 +20,10 @@ Start the dashboard on Windows with `uv run --locked lbr-dashboard`. The
    `sample_data/sample_baja_log.csv` or your own file in that explicit preset.
    Loading happens on a worker. Disconnect cancels preparation. A failed open
    reports a reason and leaves the previous source and readings intact.
+6. Choose **Firmware log (.lbrlog)**, connect and select a session log from the
+   car's SD card (or the firmware's golden `session.lbr`). The status shows how
+   much of the file has been read; anything skipped or lost is reported once
+   the replay starts. See [Opening firmware session logs](lbrlog.md).
 
 The active identity, lifecycle state, loss count, error and adapter capabilities
 come from the #20 contract. Source seek and source rate buttons are disabled
