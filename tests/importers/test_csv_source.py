@@ -5,7 +5,8 @@ import csv
 import pytest
 
 from lbr_dashboard.core import CancellationRequested, CancellationToken, SourceEventKind
-from lbr_dashboard.importers.csv_source import prepare_csv, timestamp_ns
+from lbr_dashboard.core.csv_mapping import ColumnMapping, CsvMapping, SignalKind
+from lbr_dashboard.importers.csv_source import prepare_csv, prepare_mapped_csv, timestamp_ns
 
 
 @pytest.mark.parametrize(
@@ -140,3 +141,60 @@ def test_csv_cancelled_before_and_during_read(tmp_path):
     with pytest.raises(CancellationRequested):
         prepare_csv(path, CancelDuringRead())
     path.unlink()
+
+
+def mapped(*signals: ColumnMapping, unit: str = "s") -> CsvMapping:
+    return CsvMapping(0, unit, signals)
+
+
+def test_mapped_csv_becomes_typed_sparse_signals(tmp_path):
+    path = tmp_path / "mapped.csv"
+    path.write_text("t,a,flag\n0.5,1,yes\n0.25,,no\nx,3,on\n", encoding="utf-8")
+    prepared = prepare_mapped_csv(
+        path,
+        mapped(ColumnMapping(1, "a", "V"), ColumnMapping(2, "Flag", kind=SignalKind.BOOLEAN)),
+        CancellationToken(),
+    )
+    a, flag = prepared.schema.signals
+    assert (a.identifier, a.display_name, a.canonical_unit, a.data_type) == (
+        "csv.column.1",
+        "a",
+        "V",
+        "numeric",
+    )
+    assert (flag.identifier, flag.data_type, flag.canonical_unit) == (
+        "csv.column.2",
+        "boolean",
+        None,
+    )
+    values = [(i, s.timestamp_ns, s.value) for i, s in prepared.records]
+    assert values == [
+        ("csv.column.1", 500_000_000, 1.0),
+        ("csv.column.2", 250_000_000, False),
+        ("csv.column.2", 500_000_000, True),
+    ]
+    assert prepared.summary == (
+        "Imported 2 signals from 3 rows, 1 row skipped, 1 problem, 1 row out of time order"
+    )
+    source = prepared.source()
+    assert getattr(source, "import_summary") == prepared.summary
+
+
+def test_mapped_csv_without_readings_or_over_limits_is_refused(tmp_path, monkeypatch):
+    path = tmp_path / "mapped.csv"
+    path.write_text("t,a\nx,1\n,2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="No readings with this mapping"):
+        prepare_mapped_csv(path, mapped(ColumnMapping(1, "a")), CancellationToken())
+    path.write_text("t,a\n1,1\n2,2\n", encoding="utf-8")
+    monkeypatch.setattr("lbr_dashboard.importers.csv_source.MAX_SAMPLES", 1)
+    with pytest.raises(ValueError, match="at most 200,000 readings"):
+        prepare_mapped_csv(path, mapped(ColumnMapping(1, "a")), CancellationToken())
+
+
+def test_mapped_csv_cancelled(tmp_path):
+    path = tmp_path / "mapped.csv"
+    path.write_text("t,a\n1,1\n", encoding="utf-8")
+    token = CancellationToken()
+    token.cancel()
+    with pytest.raises(CancellationRequested):
+        prepare_mapped_csv(path, mapped(ColumnMapping(1, "a")), token)

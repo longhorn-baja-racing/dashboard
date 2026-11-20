@@ -3,7 +3,8 @@
 `lbr_dashboard.core.state_timeline` turns the samples of one boolean or
 category signal (switch positions, button state, gear, status codes) into
 state segments and sample events. `lbr_dashboard.ui.state_timeline_widget`
-draws them on a time axis. The widget is not wired into the main window yet.
+draws them on a time axis. In the app they are shown by the **Analysis >
+State timeline** tool (`lbr_dashboard.ui.tools.state_timeline`, see below).
 
 Nothing in either module knows about specific sensors: any signal is shown by
 its generic signal id, with optional labels for its values.
@@ -120,9 +121,57 @@ transition and segment counts and the hold policy.
 `set_selected_time(None)` hides it. The cursor survives `show_timeline`.
 `clear()` removes everything.
 
-## Not in this slice
+The widget draws with `segment_bars`, `segment_labels` and `event_markers`,
+which the analysis tool below also uses to draw one row per signal.
 
-- Feeding real signals from the #18 event/status descriptors and the #21 range
-  query, including re-querying the window on pan and zoom.
-- Linking the x range and selected time to the time-series view and replay
-  clock (#22/#40), and hosting the widget in a dock (#37).
+## Status and event records
+
+`category_value(value)` reads a flat record such as the simulator's status
+`{"state": "idle"}` or event `{"code": "tick"}` as one category: the string
+`state=idle` (`key=value` pairs in their original order, joined by `, `).
+Equal records therefore form one state. Records with nested values, empty
+records, lists and every other value are returned unchanged, so vectors and
+nested records stay `UNSUPPORTED` with their reason as label.
+
+## Analysis > State timeline
+
+The tool opens as a dock from the **Analysis** menu and shows the loaded
+session (CSV file or simulator), one row per signal:
+
+- **Signals.** The list at the top shows every signal of the session by its
+  generic signal id and type; boolean, status, string and event signals come
+  first and the first 8 of them are ticked automatically. Tick or untick any
+  signal to show it; at most 24 rows are drawn. A numeric signal can be ticked
+  too: whole numbers (for example 0/1 digital channels from a CSV file) become
+  states and fractional values are shown as `unsupported: float ...`.
+- **Rows.** Boolean, status and string rows show state bars with labels and a
+  tick per sample under them (taller ticks are changes). Event rows show only
+  markers at the exact event times, labeled while at most 40 events are in
+  view; no state is held between events.
+- **Gaps.** Unavailable samples and time before a signal's first sample are
+  hatched gray `no data`. Session time is the earliest to the latest reading
+  over all signals, so the last sample of a signal holds until the session end.
+- **Hold limit.** `Hold state at most` sets `max_hold_ns` for every row.
+  `auto` (the default) uses 3 sample periods for signals that declare a
+  nominal rate, and otherwise holds until the next sample. The summary under
+  the plot states the limit of each row.
+- **Time axis.** The x axis is seconds since the main plot's origin (the first
+  reading of the signal plotted there) while the main plot shows a time trace
+  of the same session, else seconds since the session start. The summary
+  under the plot says which one is in use.
+- **Zoom.** `Follow main plot zoom` (on by default) keeps the x range equal to
+  the main plot's in both directions while both use the same origin. `Fit
+  session` shows the whole session.
+- **Replay and interval.** A vertical line marks the shared replay cursor
+  (`AnalysisContext.cursor_ns`), and the shared interval selection is drawn as
+  a draggable region; dragging it changes the interval for every tool.
+- **Bounded.** After every pan, zoom or new snapshot (coalesced to one refresh
+  per 100 ms) each row is rebuilt from `SessionSnapshot.range(..., neighbors=True)`
+  for the visible range only, with at most 500 segments and 1000 events per
+  row, so drawing stays bounded however long the session is.
+
+`configuration()` returns `{"signals": [...] or None, "max_hold_s": float or
+None, "follow_main_plot": bool}` (`None` signals means the automatic choice,
+`None` hold means `auto`). `restore_configuration(config)` applies it and
+raises `ValueError` for anything else. Ticked ids that the current session
+does not have are kept and listed under the plot as not in this session.

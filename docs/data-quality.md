@@ -161,9 +161,119 @@ recorded counter, completeness is unknown, never "no loss". `complete` covers
 the records between the first and last counter value in the interval; records
 lost before the first or after the last one cannot be seen.
 
+## Session report
+
+`lbr_dashboard.core.session_quality.summarize_snapshot(snapshot, start_ns=None,
+end_ns=None)` runs the summaries above on every signal of a loaded
+`SessionSnapshot` and adds what only the session knows. It is pure and
+Qt-free: the same snapshot and interval always give the same report and text.
+
+Per signal (schema order):
+
+- Records are taken in **arrival order** (`SessionSnapshot.arrival_order`), so
+  timestamp regressions stay visible. Unavailable records (`available=False`)
+  are missing values. Non-numeric signals count each present reading as a
+  value, so missing readings are counted for every data type.
+- A declared `nominal_rate_hz` becomes the expected period for gaps
+  (labelled `expected`) and gives an **expected record count** between the
+  first and last record in the interval: `round(span * rate) + 1`, compared
+  with the records present (unavailable readings included). The difference is
+  the shortfall. Absences before the first or after the last record are not
+  counted, so a source that ends or disconnects never inflates it. Without a
+  declared rate there is no expected count and gaps use the median delta.
+  Both are `inferred`.
+- Runs of consecutive unavailable records, with their times (`recorded`).
+- Counts of the quality label each record carries, for example `measured` /
+  `missing` from the CSV preset or `simulated_unavailable` from the simulator
+  (`recorded`).
+- Records evicted by session retention (`SessionSnapshot.evicted`), labelled
+  `retention`. Eviction removes old records to bound memory in live sessions;
+  it is **not data loss** and is never added to missing values, gaps,
+  shortfalls or dropped records. The report covers the retained records only.
+
+Sequence counters reach the report through a descriptor declaration, because
+the session stores counters per sample only as sample `extra` data:
+
+```python
+SignalDescriptor(..., extra={"sequence": {"field": "seq", "contiguous": True, "modulus": 65536}})
+SignalSample(t, value, extra={"seq": 41})
+```
+
+When every record of the signal carries an integer counter in that field (in
+range when a modulus is given), the counter goes to `summarize_signal`, so
+`contiguous: true` turns skipped values into confirmed dropped records and
+completeness can become `complete` or `incomplete`. Each counter event is placed
+in time by the records on either side of it. If any record lacks the counter,
+completeness stays `unknown` and the report says why. No current source
+declares a counter yet.
+
+Per source (by source id):
+
+- The latest `SourceHealth` the source reported: state and terminal reason,
+  records the source reports it lost before they reached the session
+  (`dropped_records`, for example the simulator's scheduled loss or a full
+  source queue), records still waiting in the source buffer, rejected controls
+  and the last error. All `recorded`, because the source reported them.
+- A source that has ended, stopped or closed is reported as no longer
+  delivering: time after its last record is not missing data. When the user
+  disconnects, the app commits the released source's final health to the
+  session so the report shows it.
+- Retained source events (the session keeps the latest 64): errors, end of
+  stream, and health events whose `last_error` changed (heartbeats that repeat
+  the same error add nothing). An event's time comes from
+  `error.context["timestamp_ns"]` when the source attached one.
+- Each source keeps its own evidence. Loss reported by one source (for example
+  a live link) is never applied to another source's records (for example an SD
+  recording), and a source's reported loss is shown next to, not subtracted
+  from, the per-signal counts.
+
+`findings(report)` lists gaps, unavailable runs, counter events and timed source
+events in time order; `signal_row` and `source_rows` give the ASCII text the
+tool shows.
+
+## Analysis > Data quality
+
+**Analysis > Data quality** opens a dock over the loaded session (CSV or
+simulator). It summarizes the shared interval, or the whole session when no
+interval is selected (**Whole session** clears the interval). It refreshes at
+most every 200 ms while a source streams.
+
+- **Timeline**: one row per signal over the whole session with its coverage
+  (grey), gaps (red, `inferred`), unavailable runs (orange, `recorded`) and
+  counter events (blue), plus a top row of timed source events (purple). The
+  shared interval is drawn and can be dragged as on the main plot, and a green
+  line follows the replay cursor. Clicking a gap or an unavailable run selects
+  it as the shared interval.
+- **Signals**: records, unavailable readings, expected records from a declared
+  rate, gaps, confirmed dropped records, completeness and retention evictions
+  per signal, with the evidence in each column header.
+- **Gaps and events**: every finding in the interval with its times and
+  evidence. Clicking a gap, unavailable run or counter event selects it as the
+  shared interval.
+- **Sources**: the per-source facts above.
+- **Selected signal**: the full `format_quality` rows for the signal selected in
+  the browser, plus its expected count, evictions and quality labels.
+
+To try it on Windows (or any platform), run the app, open
+`sample_data/timestamped_demo.csv` through the source picker and choose
+**Analysis > Data quality**: the temperature reading at 0.250 s and the flow
+reading at 0.500 s are listed as unavailable. The **Fictional process
+simulator** adds pressure gaps at 0.190-0.250 s (5 records the source reports
+lost) and 0.690-0.750 s (5 stale records), and 5 unavailable readings at
+0.500-0.540 s.
+
 ## Not covered yet
 
-- Recorded heartbeat, decoder, queue or storage health and reconnect events
-  (they depend on the source health work in #44).
-- Transport-observed evidence from live capture.
-- Wiring into the session model (#21) and any UI beyond text rows.
+These need a live transport adapter (#33) or protocol definitions:
+
+- Firmware-reported versus transport-observed attribution. Today every source
+  fact is labelled `recorded` (reported by the source adapter); a serial
+  adapter will have to say whether loss was reported by the firmware or seen on
+  the link.
+- Recorded heartbeat, decoder, queue or storage health beyond what
+  `SourceHealth` carries, and reconnect events. `core/source_health.py`
+  computes link health, heartbeats and reconnects for a live transport, but no
+  source delivers it into the session yet.
+- Protocol-defined counter rollover and reset rules for real devices, and
+  logging or decimation policies that would let live versus SD completeness be
+  compared.

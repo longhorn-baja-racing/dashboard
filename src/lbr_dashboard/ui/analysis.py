@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from numbers import Real
+from pathlib import Path
 
 import pyqtgraph as pg
 from PySide6.QtCore import QObject, Qt, Signal
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
 from ..core import SessionSnapshot, SignalDescriptor
 from ..core.derived_session import DerivedSignalSet
 from ..core.interval import IntervalSelection, TimeInterval
+from ..core.source_monitor import SourceMonitorReport
 from .interval_region import IntervalRegion, PlotTimeScale
 from .plot_style import apply_plot_colors
 
@@ -39,6 +41,9 @@ class AnalysisContext(QObject):
     interval_changed = Signal()
     theme_changed = Signal()
     derived_changed = Signal()
+    source_health_changed = Signal()
+    plot_changed = Signal()
+    seek_requested = Signal(object)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -46,8 +51,14 @@ class AnalysisContext(QObject):
         self.snapshot: SessionSnapshot | None = None
         self.selected_id: str | None = None
         self.cursor_ns: int | None = None
+        self.following_live = False
+        self.log_path: Path | None = None
+        self.plot: pg.PlotWidget | None = None
+        self.plot_origin_ns: int | None = None
+        self.plot_signal_id: str | None = None
         self.selection = IntervalSelection()
         self.plot_colors = ("#202020", "#eeeeee")
+        self.source_health: SourceMonitorReport | None = None
         self._descriptors: dict[str, SignalDescriptor] = {}
         self.selection.subscribe(lambda _interval: self.interval_changed.emit())
         # Derived signal definitions outlive any one session; the source controller
@@ -72,11 +83,22 @@ class AnalysisContext(QObject):
     def descriptor(self, signal_id: str | None) -> SignalDescriptor | None:
         return self._descriptors.get(signal_id) if signal_id else None
 
-    def set_snapshot(self, session: object | None, snapshot: SessionSnapshot | None) -> None:
-        """Show a new revision; a different session also clears the interval."""
+    def set_snapshot(
+        self,
+        session: object | None,
+        snapshot: SessionSnapshot | None,
+        *,
+        log_path: Path | None = None,
+    ) -> None:
+        """Show a new revision; a different session also clears the interval.
+
+        ``log_path`` is the file the session was read from, or None for sources
+        without a file such as simulators. It is taken when the session changes.
+        """
 
         if session is not self.session:
             self.session = session
+            self.log_path = log_path if session is not None else None
             self.selection.clear()
         if snapshot is self.snapshot:
             return
@@ -94,10 +116,43 @@ class AnalysisContext(QObject):
             self.selected_id = signal_id
             self.signal_changed.emit()
 
-    def set_cursor(self, time_ns: int | None) -> None:
-        if time_ns != self.cursor_ns:
+    def set_cursor(self, time_ns: int | None, *, live: bool = False) -> None:
+        """Move the replay cursor; ``live`` is true while the clock follows live data."""
+
+        if time_ns != self.cursor_ns or live != self.following_live:
             self.cursor_ns = time_ns
+            self.following_live = live
             self.cursor_changed.emit()
+
+    def set_source_health(self, report: SourceMonitorReport | None) -> None:
+        """Publish the latest health of the active (or last) source."""
+
+        if report != self.source_health:
+            self.source_health = report
+            self.source_health_changed.emit()
+
+    def request_seek(self, time_ns: int) -> None:
+        """Ask the replay clock to move its cursor to ``time_ns`` (session time)."""
+
+        self.seek_requested.emit(time_ns)
+
+    def set_plot(
+        self,
+        plot: pg.PlotWidget | None,
+        origin_ns: int | None,
+        *,
+        signal_id: str | None = None,
+    ) -> None:
+        """Record the main time plot, whose x axis is seconds since ``origin_ns``.
+
+        ``signal_id`` is the signal the plot shows. ``plot_changed`` is emitted
+        every time the plot is (re)attached, including after it was cleared, so
+        tools can draw their items on it again.
+        """
+
+        self.plot, self.plot_origin_ns = plot, origin_ns
+        self.plot_signal_id = signal_id if plot is not None else None
+        self.plot_changed.emit()
 
     def set_plot_colors(self, background: str, text: str) -> None:
         """Record the theme's plot colors and restyle every tool plot."""
@@ -119,6 +174,7 @@ class AnalysisContext(QObject):
 
         self.set_snapshot(None, None)
         self.set_cursor(None)
+        self.set_source_health(None)
 
     def numeric_series(
         self, signal_id: str, interval: TimeInterval | None = None
@@ -255,6 +311,7 @@ class AnalysisDocks:
             current.detach()
         self._plot, self._origin_ns = plot, origin_ns
         self.region = IntervalRegion(plot, self.context.selection, PlotTimeScale.seconds(origin_ns))
+        self.context.set_plot(plot, origin_ns, signal_id=self.context.selected_id)
 
     def leave_plot(self) -> None:
         """Remove the region, e.g. while the plot shows something other than a session."""
@@ -263,6 +320,7 @@ class AnalysisDocks:
             self.region.detach()
         self.region = None
         self._plot = self._origin_ns = None
+        self.context.set_plot(None, None)
 
     def select_visible_range(self) -> TimeInterval | None:
         region = self.region
