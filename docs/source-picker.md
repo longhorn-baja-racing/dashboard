@@ -29,6 +29,10 @@ Start the dashboard on Windows with `uv run --locked lbr-dashboard`. The
    **Import** loads the file on a worker into the same kind of session as the
    preset and the status reports skipped rows. **Cancel** keeps the current
    session. See [csv-mapping.md](csv-mapping.md).
+7. Choose **Firmware log (.lbrlog)**, connect and select a session log from the
+   car's SD card (or the firmware's golden `session.lbr`). The status shows how
+   much of the file has been read; anything skipped or lost is reported once
+   the replay starts. See [Opening firmware session logs](lbrlog.md).
 
 The active identity, lifecycle state, loss count, error and adapter capabilities
 come from the #20 contract. Source seek and source rate buttons are disabled

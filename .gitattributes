@@ -1,2 +1,4 @@
 tests/fixtures/lbr/*.csv -text
+tests/fixtures/lbr/*.json -text
+tests/fixtures/lbr/*.hex -text
 sample_data/*.csv -text

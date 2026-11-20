@@ -6,6 +6,9 @@ docs/export.md for the file formats.
 
 Intervals are CLOSED: a sample at exactly ``start_ns`` or ``end_ns`` is
 exported. ``None`` for either bound means "unbounded on that side".
+
+``snapshot_signals()`` builds the export input from a session snapshot, so the
+app exports the session's raw records and not arrays owned by a widget.
 """
 
 from __future__ import annotations
@@ -18,18 +21,24 @@ import math
 import os
 import secrets
 from bisect import bisect_left, bisect_right
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from itertools import pairwise
+from numbers import Real
 from pathlib import Path
 from typing import Any, BinaryIO
 
 from .lifecycle import CancellationToken
+from .session import SessionRecord, SessionSnapshot
+from .signals import SignalDescriptor
 
 FORMAT_NAME = "lbr-dashboard-raw-csv"
-FORMAT_VERSION = 1
-CSV_COLUMNS = ("signal_id", "time_ns", "time_s", "value", "unit")
+FORMAT_VERSION = 2
+CSV_COLUMNS = ("signal_id", "time_ns", "time_s", "value", "unit", "available", "quality")
+UNSPECIFIED_FRAME = "unspecified"
+# Descriptor keys that name a signal's coordinate or reference frame, in lookup order.
+FRAME_KEYS = ("frame", "coordinate_frame", "reference_frame")
 METADATA_SUFFIX = ".meta.json"
 
 # Rows written between cancellation checks and progress reports.
@@ -48,19 +57,36 @@ class ExportSignal:
 
     ``times_ns`` are integer nanoseconds in non-decreasing order. ``values``
     holds one value per timestamp; ``None`` and NaN both mean "missing".
+    Values are usually numbers; text, booleans and JSON values (vectors,
+    events) are written as text. ``available`` optionally marks readings the
+    source reported as unavailable (their value is never written) and
+    ``quality`` optionally holds the source's quality label per sample.
+    ``frame`` names the coordinate or reference frame of the values.
     This is only an export input, not a signal model.
     """
 
     signal_id: str
     unit: str
     times_ns: Sequence[int]
-    values: Sequence[float | None]
+    values: Sequence[object]
+    available: Sequence[bool] | None = None
+    quality: Sequence[str | None] | None = None
+    frame: str = UNSPECIFIED_FRAME
+    display_name: str | None = None
+    data_type: str | None = None
+    timestamp_domain: str | None = None
 
     def __post_init__(self) -> None:
         if not self.signal_id:
             raise ValueError("Export signal id must be a non-empty string")
         if len(self.times_ns) != len(self.values):
             raise ValueError(f"Signal {self.signal_id!r} has different time and value counts")
+        for name in ("available", "quality"):
+            column = getattr(self, name)
+            if column is not None and len(column) != len(self.times_ns):
+                raise ValueError(f"Signal {self.signal_id!r} has different time and {name} counts")
+        if not self.frame:
+            raise ValueError(f"Signal {self.signal_id!r} frame must be a non-empty string")
         if any(later < earlier for earlier, later in pairwise(self.times_ns)):
             raise ValueError(f"Signal {self.signal_id!r} timestamps are not non-decreasing")
 
@@ -143,8 +169,19 @@ def export_csv(
                 "reference": "source log clock, exported unchanged",
                 "time_s": "exact decimal copy of time_ns / 1e9",
             },
-            "interval": {"start_ns": start_ns, "end_ns": end_ns, "boundaries": "closed"},
-            "missing_value": "empty value cell",
+            "interval": {
+                "start_ns": start_ns,
+                "end_ns": end_ns,
+                "boundaries": "closed",
+                "scope": "all samples"
+                if start_ns is None and end_ns is None
+                else "samples inside the interval",
+            },
+            "missing_value": "empty value cell with available false",
+            "available": "true when the sample has a value; false when the source "
+            "reported it unavailable or the value is NaN",
+            "quality": "quality label reported by the source; empty when none",
+            "frame": "per signal in signals[].frame; 'unspecified' when the source gives none",
             "alignment": "none",
             "resampling": "none",
             "derived_operations": [],
@@ -233,40 +270,142 @@ def _write_rows(
     summaries: list[dict[str, Any]] = []
     for signal, (begin, stop) in zip(signals, ranges):
         missing = 0
+        flags, labels = signal.available, signal.quality
         for index in range(begin, stop):
             time_ns = signal.times_ns[index]
-            value = _value_text(signal.values[index])
-            if not value:
+            raw = signal.values[index]
+            present = (flags is None or flags[index]) and not _is_missing(raw)
+            if not present:
                 missing += 1
-            writer.writerow((signal.signal_id, time_ns, _seconds_text(time_ns), value, signal.unit))
+            writer.writerow(
+                (
+                    signal.signal_id,
+                    time_ns,
+                    _seconds_text(time_ns),
+                    _value_text(raw) if present else "",
+                    signal.unit,
+                    "true" if present else "false",
+                    (labels[index] if labels is not None else None) or "",
+                )
+            )
             done += 1
             if done % CHUNK_ROWS == 0:
                 flush()
-        summaries.append(
+        summary: dict[str, Any] = {"signal_id": signal.signal_id}
+        if signal.display_name is not None:
+            summary["display_name"] = signal.display_name
+        if signal.data_type is not None:
+            summary["data_type"] = signal.data_type
+        summary["unit"] = signal.unit
+        summary["frame"] = signal.frame
+        if signal.timestamp_domain is not None:
+            summary["timestamp_domain"] = signal.timestamp_domain
+        summary.update(
             {
-                "signal_id": signal.signal_id,
-                "unit": signal.unit,
                 "sample_count": stop - begin,
                 "missing_count": missing,
                 "first_time_ns": signal.times_ns[begin] if stop > begin else None,
                 "last_time_ns": signal.times_ns[stop - 1] if stop > begin else None,
             }
         )
+        summaries.append(summary)
     flush()
     return digest.hexdigest(), summaries
 
 
-def _value_text(value: float | None) -> str:
-    """Return the shortest exact text for a value; missing becomes empty.
+def _is_missing(value: object) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value))
 
+
+def _value_text(value: object) -> str:
+    """Return exact text for a present value.
+
+    Numbers use the shortest text that reads back as the same 64-bit float.
     Infinite values are raw data, not missing, and are written as ``inf`` or
-    ``-inf``.
+    ``-inf``. Booleans are ``true``/``false``, text is written unchanged and
+    other JSON values (vectors, event payloads) as compact JSON.
     """
 
-    if value is None:
-        return ""
-    number = float(value)
-    return "" if math.isnan(number) else repr(number)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, Real):
+        return repr(float(value))
+    if isinstance(value, str):
+        return value
+    return json.dumps(_plain_json(value), ensure_ascii=False, separators=(",", ":"))
+
+
+def _plain_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_plain_json(item) for item in value]
+    return value
+
+
+def signal_frame(descriptor: SignalDescriptor) -> str:
+    """Return the frame named by a descriptor, or ``"unspecified"``.
+
+    Looks for a non-empty text value under ``FRAME_KEYS`` in the descriptor's
+    ``extra``, ``display`` and ``calibration`` metadata, in that order.
+    """
+
+    for mapping in (descriptor.extra, descriptor.display, descriptor.calibration):
+        for key in FRAME_KEYS:
+            value = mapping.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return UNSPECIFIED_FRAME
+
+
+def snapshot_signals(
+    snapshot: SessionSnapshot,
+    signal_ids: Sequence[str],
+    *,
+    start_ns: int | None = None,
+    end_ns: int | None = None,
+) -> list[ExportSignal]:
+    """Return the raw records of ``signal_ids`` in ``snapshot`` as export input.
+
+    Only records inside the closed interval are taken (``None`` = unbounded).
+    Values, availability and quality are copied from each sample unchanged;
+    unit, frame, name and type come from the signal descriptor. Raises
+    ``ValueError`` for an id that the snapshot does not contain.
+    """
+
+    descriptors = {item.identifier: item for item in snapshot.schema.signals}
+    signals: list[ExportSignal] = []
+    for signal_id in signal_ids:
+        descriptor = descriptors.get(signal_id)
+        if descriptor is None or signal_id not in snapshot.series:
+            raise ValueError(f"Signal {signal_id!r} is not in the session")
+        samples = [record.sample for record in _records_in(snapshot, signal_id, start_ns, end_ns)]
+        signals.append(
+            ExportSignal(
+                signal_id,
+                descriptor.canonical_unit or "",
+                [sample.timestamp_ns for sample in samples],
+                [sample.value for sample in samples],
+                available=[sample.available for sample in samples],
+                quality=[sample.quality for sample in samples],
+                frame=signal_frame(descriptor),
+                display_name=descriptor.display_name,
+                data_type=descriptor.data_type,
+                timestamp_domain=descriptor.timestamp_domain,
+            )
+        )
+    return signals
+
+
+def _records_in(
+    snapshot: SessionSnapshot, signal_id: str, start_ns: int | None, end_ns: int | None
+) -> Sequence[SessionRecord]:
+    records = snapshot.series[signal_id]
+    if (start_ns is None and end_ns is None) or not records:
+        return records
+    first = records[0].sample.timestamp_ns if start_ns is None else start_ns
+    last = records[-1].sample.timestamp_ns if end_ns is None else end_ns
+    return snapshot.range(signal_id, first, last) if first <= last else ()
 
 
 def _seconds_text(time_ns: int) -> str:

@@ -21,9 +21,13 @@ from lbr_dashboard.core.export import (
     ExportSignal,
     export_csv,
     metadata_path_for,
+    signal_frame,
+    snapshot_signals,
     write_file_atomically,
 )
 from lbr_dashboard.core.lifecycle import CancellationRequested, CancellationToken
+from lbr_dashboard.core.session import TelemetrySession
+from lbr_dashboard.core.signals import SignalDescriptor, SignalSample, SignalSchema
 
 MS = 1_000_000
 
@@ -62,14 +66,14 @@ def test_reference_values_timestamps_and_units(tmp_path: Path) -> None:
     assert result.row_count == 8
     assert _rows(path) == [
         list(CSV_COLUMNS),
-        ["engine_rpm", "0", "0.000000000", "900.0", "1/min"],
-        ["engine_rpm", "10000000", "0.010000000", "950.5", "1/min"],
-        ["engine_rpm", "20000000", "0.020000000", "1000.25", "1/min"],
-        ["engine_rpm", "30000000", "0.030000000", "0.0", "1/min"],
-        ["engine_rpm", "40000000", "0.040000000", "-1.5", "1/min"],
-        ["cvt_temp", "0", "0.000000000", "21.0", "deg C"],
-        ["cvt_temp", "25000000", "0.025000000", "21.5", "deg C"],
-        ["cvt_temp", "100000000", "0.100000000", "30.0", "deg C"],
+        ["engine_rpm", "0", "0.000000000", "900.0", "1/min", "true", ""],
+        ["engine_rpm", "10000000", "0.010000000", "950.5", "1/min", "true", ""],
+        ["engine_rpm", "20000000", "0.020000000", "1000.25", "1/min", "true", ""],
+        ["engine_rpm", "30000000", "0.030000000", "0.0", "1/min", "true", ""],
+        ["engine_rpm", "40000000", "0.040000000", "-1.5", "1/min", "true", ""],
+        ["cvt_temp", "0", "0.000000000", "21.0", "deg C", "true", ""],
+        ["cvt_temp", "25000000", "0.025000000", "21.5", "deg C", "true", ""],
+        ["cvt_temp", "100000000", "0.100000000", "30.0", "deg C", "true", ""],
     ]
     assert path.read_bytes().count(b"\r\n") == 9
 
@@ -98,7 +102,12 @@ def test_closed_interval_includes_samples_exactly_at_both_edges(tmp_path: Path) 
         ("cvt_temp", 25 * MS),
     ]
     metadata = _metadata(path)
-    assert metadata["interval"] == {"start_ns": 10 * MS, "end_ns": 25 * MS, "boundaries": "closed"}
+    assert metadata["interval"] == {
+        "start_ns": 10 * MS,
+        "end_ns": 25 * MS,
+        "boundaries": "closed",
+        "scope": "samples inside the interval",
+    }
     summaries = {item["signal_id"]: item for item in metadata["signals"]}
     assert summaries["engine_rpm"]["first_time_ns"] == 10 * MS
     assert summaries["engine_rpm"]["last_time_ns"] == 20 * MS
@@ -117,6 +126,7 @@ def test_half_open_and_empty_intervals(tmp_path: Path) -> None:
     assert summary == {
         "signal_id": "engine_rpm",
         "unit": "1/min",
+        "frame": "unspecified",
         "sample_count": 0,
         "missing_count": 0,
         "first_time_ns": None,
@@ -154,10 +164,11 @@ def test_missing_values_are_empty_cells_and_never_zero(tmp_path: Path) -> None:
     export_csv(path, [signal])
 
     assert [row[3] for row in _rows(path)[1:]] == ["", "", "0.0", "inf", "-inf"]
+    assert [row[5] for row in _rows(path)[1:]] == ["false", "false", "true", "true", "true"]
     summary = _metadata(path)["signals"][0]
     assert summary["sample_count"] == 5
     assert summary["missing_count"] == 2
-    assert _metadata(path)["missing_value"] == "empty value cell"
+    assert _metadata(path)["missing_value"] == "empty value cell with available false"
 
 
 def test_values_round_trip_exactly(tmp_path: Path) -> None:
@@ -189,7 +200,7 @@ def test_csv_quoting_of_ids_and_units(tmp_path: Path) -> None:
     path = tmp_path / "quoted.csv"
     signal_id = 'wheel, "front" left'
     export_csv(path, [ExportSignal(signal_id, "m/s, avg", [0], [1.0])])
-    assert _rows(path)[1] == [signal_id, "0", "0.000000000", "1.0", "m/s, avg"]
+    assert _rows(path)[1] == [signal_id, "0", "0.000000000", "1.0", "m/s, avg", "true", ""]
 
 
 def test_unicode_path_ids_and_units(tmp_path: Path) -> None:
@@ -201,7 +212,7 @@ def test_unicode_path_ids_and_units(tmp_path: Path) -> None:
     export_csv(path, [ExportSignal(signal_id, unit, [0], [20.0])])
 
     assert not path.read_bytes().startswith(b"\xef\xbb\xbf")  # no byte order mark
-    assert _rows(path)[1] == [signal_id, "0", "0.000000000", "20.0", unit]
+    assert _rows(path)[1] == [signal_id, "0", "0.000000000", "20.0", unit, "true", ""]
     assert _metadata(path)["signals"][0]["unit"] == unit
     assert _metadata(path)["csv_file"] == path.name
 
@@ -218,13 +229,15 @@ def test_metadata_describes_the_csv_and_is_reproducible(tmp_path: Path) -> None:
     assert metadata_path_for(first).read_bytes() == metadata_path_for(second).read_bytes()
     metadata = _metadata(first)
     assert metadata["format"] == "lbr-dashboard-raw-csv"
-    assert metadata["format_version"] == 1
+    assert metadata["format_version"] == 2
     assert metadata["csv_sha256"] == hashlib.sha256(first.read_bytes()).hexdigest()
     assert metadata["columns"] == list(CSV_COLUMNS)
     assert metadata["row_count"] == 8
     assert metadata["time"]["unit"] == "ns"
     assert metadata["source"] == "session-07.csv"
     assert metadata["interval"]["end_ns"] is None
+    assert metadata["interval"]["scope"] == "samples inside the interval"
+    assert _metadata(tmp_path / "a" / "run.csv")["signals"][0]["frame"] == "unspecified"
 
 
 def test_existing_files_are_kept_without_overwrite(tmp_path: Path) -> None:
@@ -433,6 +446,12 @@ def test_invalid_signals_are_rejected() -> None:
         ExportSignal("x", "", [1, 2], [1.0])
     with pytest.raises(ValueError, match="non-decreasing"):
         ExportSignal("x", "", [2, 1], [1.0, 2.0])
+    with pytest.raises(ValueError, match="available counts"):
+        ExportSignal("x", "", [1, 2], [1.0, 2.0], available=[True])
+    with pytest.raises(ValueError, match="quality counts"):
+        ExportSignal("x", "", [1], [1.0], quality=[])
+    with pytest.raises(ValueError, match="frame"):
+        ExportSignal("x", "", [1], [1.0], frame="")
 
 
 def test_write_file_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -453,3 +472,105 @@ def test_write_file_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert path.read_bytes() == b"second"
     with pytest.raises(ExportError):
         write_file_atomically(tmp_path / "missing" / "plot.png", b"data")
+
+
+def test_availability_quality_and_text_values(tmp_path: Path) -> None:
+    path = tmp_path / "status.csv"
+    signals = [
+        ExportSignal(
+            "valve",
+            "",
+            [0, 1, 2, 3],
+            ["closed", None, "", "open"],
+            available=[True, False, True, True],
+            quality=["measured", "missing", None, "estimated"],
+            data_type="string",
+        ),
+        ExportSignal("armed", "", [0, 1], [True, False], data_type="boolean"),
+        ExportSignal("accel", "m/s^2", [5], [(0.5, -1.0, 9.81)], frame="vehicle FLU"),
+    ]
+    export_csv(path, signals)
+
+    assert _rows(path)[1:] == [
+        ["valve", "0", "0.000000000", "closed", "", "true", "measured"],
+        ["valve", "1", "0.000000001", "", "", "false", "missing"],
+        ["valve", "2", "0.000000002", "", "", "true", ""],
+        ["valve", "3", "0.000000003", "open", "", "true", "estimated"],
+        ["armed", "0", "0.000000000", "true", "", "true", ""],
+        ["armed", "1", "0.000000001", "false", "", "true", ""],
+        ["accel", "5", "0.000000005", "[0.5,-1.0,9.81]", "m/s^2", "true", ""],
+    ]
+    summaries = _metadata(path)["signals"]
+    assert summaries[0]["missing_count"] == 1
+    assert summaries[0]["data_type"] == "string"
+    assert summaries[2]["frame"] == "vehicle FLU"
+
+
+def test_unavailable_reading_never_writes_its_value(tmp_path: Path) -> None:
+    path = tmp_path / "flagged.csv"
+    export_csv(path, [ExportSignal("x", "", [0], [0.0], available=[False])])
+    assert _rows(path)[1][3:6] == ["", "", "false"]
+
+
+def _descriptor(identifier: str, **kwargs: Any) -> SignalDescriptor:
+    return SignalDescriptor(
+        identifier, identifier.title(), ("lab",), "numeric", "fixture", **kwargs
+    )
+
+
+def test_signal_frame_comes_from_descriptor_metadata() -> None:
+    assert signal_frame(_descriptor("a")) == "unspecified"
+    assert signal_frame(_descriptor("b", display={"frame": " body "})) == "body"
+    assert signal_frame(_descriptor("c", extra={"coordinate_frame": "ENU"})) == "ENU"
+    assert signal_frame(_descriptor("d", calibration={"reference_frame": "chassis"})) == "chassis"
+    assert signal_frame(_descriptor("e", display={"frame": ""}, extra={"frame": "NED"})) == "NED"
+    assert signal_frame(_descriptor("f", display={"frame": 3})) == "unspecified"
+
+
+def test_snapshot_signals_copy_raw_records_inside_the_interval(tmp_path: Path) -> None:
+    schema = SignalSchema(
+        1,
+        (
+            _descriptor("speed", canonical_unit="m/s", display={"frame": "vehicle"}),
+            _descriptor("temp", canonical_unit="K", timestamp_domain="relative"),
+        ),
+    )
+    store = TelemetrySession(schema)
+    store.extend(
+        "speed",
+        [
+            SignalSample(0, 1.5),
+            SignalSample(10, None, available=False, quality="dropout"),
+            SignalSample(20, 0.0, quality="measured"),
+        ],
+    )
+    store.extend("temp", [SignalSample(5, 300.0, timestamp_domain="relative")])
+    snapshot = store.snapshot()
+
+    whole = snapshot_signals(snapshot, ["temp", "speed"])
+    assert [signal.signal_id for signal in whole] == ["temp", "speed"]
+    speed = whole[1]
+    assert (speed.unit, speed.frame, speed.display_name) == ("m/s", "vehicle", "Speed")
+    assert list(speed.times_ns) == [0, 10, 20]
+    assert list(speed.values) == [1.5, None, 0.0]
+    assert list(speed.available or ()) == [True, False, True]
+    assert list(speed.quality or ()) == [None, "dropout", "measured"]
+    assert whole[0].timestamp_domain == "relative"
+
+    edges = snapshot_signals(snapshot, ["speed"], start_ns=10, end_ns=20)
+    assert list(edges[0].times_ns) == [10, 20]
+    assert list(snapshot_signals(snapshot, ["speed"], start_ns=11)[0].times_ns) == [20]
+    assert list(snapshot_signals(snapshot, ["speed"], end_ns=-1)[0].times_ns) == []
+    with pytest.raises(ValueError, match="not in the session"):
+        snapshot_signals(snapshot, ["unknown"])
+
+    path = tmp_path / "session.csv"
+    export_csv(path, edges, start_ns=10, end_ns=20)
+    assert _rows(path)[1:] == [
+        ["speed", "10", "0.000000010", "", "m/s", "false", "dropout"],
+        ["speed", "20", "0.000000020", "0.0", "m/s", "true", "measured"],
+    ]
+    summary = _metadata(path)["signals"][0]
+    assert summary["frame"] == "vehicle"
+    assert summary["data_type"] == "numeric"
+    assert summary["timestamp_domain"] == "unspecified"
