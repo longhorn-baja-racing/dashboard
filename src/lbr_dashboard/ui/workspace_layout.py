@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 import shiboken6
-from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QRect, Qt, QTimer
 from PySide6.QtWidgets import QDockWidget, QMainWindow, QTabBar
 
 from ..workspace import LayoutNode, SplitLayout, TabLayout, WidgetRef, iter_layout_refs
@@ -276,21 +276,92 @@ class _Placer:
             self.resizes.append((firsts, node.weights, orientation))
 
 
-def _apply_sizes(
-    window: QMainWindow,
-    resizes: Iterable[tuple[list[QDockWidget], tuple[float, ...], Qt.Orientation]],
-) -> None:
+Resize = tuple[list[QDockWidget], tuple[float, ...], Qt.Orientation]
+
+#: Delays (ms) of the passes after a restore or after the window is shown.
+#: Native platforms (notably Windows) can run further layout passes after
+#: show, so the sizes are applied again once those have happened.
+SETTLE_PASSES_MS = (0, 50, 200)
+
+
+def _apply_sizes(window: QMainWindow, resizes: Iterable[Resize]) -> None:
+    """Give each split its saved relative sizes within its current extent."""
+
     if not shiboken6.isValid(window):
         return
     for docks, weights, orientation in resizes:
         if not all(shiboken6.isValid(dock) for dock in docks):
             continue
+        layout = window.layout()
+        if layout is not None:
+            layout.activate()  # Measure the extents Qt will actually use.
         horizontal = orientation == Qt.Orientation.Horizontal
         total = sum(dock.width() if horizontal else dock.height() for dock in docks)
         if total <= len(docks):
             total = window.width() if horizontal else window.height()
         scale = total / sum(weights)
         window.resizeDocks(docks, [max(1, round(w * scale)) for w in weights], orientation)
+    layout = window.layout()
+    if layout is not None:
+        layout.activate()
+
+
+class SizeApplier(QObject):
+    """Apply restored split sizes now, after the layout settles and after show.
+
+    ``resizeDocks`` only distributes the space a dock area has at that moment.
+    Before the window is shown, or before the platform's last layout pass, that
+    space is not final and Qt redistributes it later by its own rules, so the
+    saved ratios are applied again in a few deferred passes and whenever the
+    window is shown. One applier exists per window; a newer restore replaces it.
+    """
+
+    def __init__(self, window: QMainWindow, resizes: list[Resize]) -> None:
+        super().__init__(window)
+        self.setObjectName("workspaceSizeApplier")
+        self.window = window
+        self.resizes = resizes
+        self.timers: list[QTimer] = []
+        if not window.isVisible():
+            # Restored before the window was shown (startup): apply after show.
+            window.installEventFilter(self)
+        self.apply()
+        self.schedule()
+
+    def apply(self) -> None:
+        # Outer splits first: inner splits are then sized within their final extent.
+        _apply_sizes(self.window, reversed(self.resizes))
+
+    def schedule(self) -> None:
+        for timer in self.timers:
+            timer.stop()
+            timer.deleteLater()
+        self.timers = []
+        for delay in SETTLE_PASSES_MS:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(delay)
+            timer.timeout.connect(self.apply)
+            timer.start()
+            self.timers.append(timer)
+
+    def pending(self) -> bool:
+        """Whether deferred passes have yet to run."""
+
+        return any(timer.isActive() for timer in self.timers)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.window and event.type() == QEvent.Type.Show:
+            # Only the first show; later ones (un-minimizing) keep the user's sizes.
+            self.window.removeEventFilter(self)
+            self.schedule()
+        return False
+
+    def stop(self) -> None:
+        self.window.removeEventFilter(self)
+        for timer in self.timers:
+            timer.stop()
+        self.deleteLater()
 
 
 def place_layout(
@@ -316,6 +387,7 @@ def place_layout(
             dock.show()
     for dock in placer.current_tabs:
         dock.raise_()
-    _apply_sizes(window, placer.resizes)
-    # Sizes settle once the window has laid out; apply them again then.
-    QTimer.singleShot(0, lambda: _apply_sizes(window, placer.resizes))
+    previous = window.findChild(SizeApplier, "workspaceSizeApplier")
+    if previous is not None:
+        previous.stop()
+    SizeApplier(window, placer.resizes)

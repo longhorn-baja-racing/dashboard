@@ -17,6 +17,8 @@ from lbr_dashboard.source_controller import SourceController
 from lbr_dashboard.ui.analysis import AnalysisContext, AnalysisTool
 from lbr_dashboard.ui.docks import SignalDock
 from lbr_dashboard.ui.main_window import MainWindow
+from lbr_dashboard.ui.tools import TOOLS
+from lbr_dashboard.ui.workspace_layout import SizeApplier
 from lbr_dashboard.ui.workspace_manager import ImportPreviewDialog, PlaceholderDock
 from lbr_dashboard.workspace import (
     CURRENT_VERSION,
@@ -108,6 +110,15 @@ def trigger(window: MainWindow, text: str) -> None:
     action.trigger()
 
 
+def wait_for_layout(qtbot, window: MainWindow) -> None:
+    """Let the restored split sizes settle, as they do after the platform's layout passes."""
+
+    applier = window.findChild(SizeApplier, "workspaceSizeApplier")
+    assert applier is not None
+    qtbot.waitUntil(lambda: not applier.pending(), timeout=5_000)
+    qtbot.wait(20)
+
+
 def structure(node: Any) -> Any:
     """A layout tree without weights, which depend on pixel rounding."""
 
@@ -132,6 +143,14 @@ def without_layout(workspace: Workspace) -> dict[str, Any]:
     data = workspace_to_dict(workspace)
     data.pop("layout")
     return data
+
+
+def assert_same(actual: Workspace, expected: Workspace) -> None:
+    """Equal workspaces, allowing split sizes to differ by pixel rounding."""
+
+    assert without_layout(actual) == without_layout(expected)
+    assert structure(actual.layout) == structure(expected.layout)
+    assert weights(actual.layout) == pytest.approx(weights(expected.layout), abs=0.01)
 
 
 def build_session_workspace(qtbot, window: MainWindow) -> None:
@@ -199,6 +218,7 @@ def test_save_close_and_reopen_restores_layout_bindings_and_tool_configuration(
     trigger(restarted, "Open workspace...")
     again = restarted.workspace_manager
     assert again.path == path and again.name == "Bench layout"
+    wait_for_layout(qtbot, restarted)
     after = again.capture()
     assert without_layout(after) == without_layout(before)
     assert structure(after.layout) == structure(before.layout)
@@ -254,7 +274,7 @@ def test_missing_signals_are_placeholders_that_resolve_later_and_can_be_rebound(
     assert value.value_widget is not None
     assert value.value_widget.state_label.text() == "[NO DATA]"
     # Placeholders are saved back unchanged.
-    assert empty.workspace_manager.capture() == read_workspace(path)
+    assert_same(empty.workspace_manager.capture(), read_workspace(path))
 
     # A different, unrelated source leaves them unresolved; the user can rebind one.
     open_csv_demo(qtbot, empty)
@@ -338,7 +358,8 @@ def test_corrupt_newer_or_unportable_files_are_rejected_and_never_overwritten(
         assert manager.message_box is not None and manager.message_box.isVisible()
         assert "The current workspace is unchanged." in manager.last_message
         assert expected in manager.last_message
-        assert manager.capture() == before and manager.path == current
+        assert_same(manager.capture(), before)
+        assert manager.path == current
     assert manager.save()  # saves to the current file, never to the rejected one
     assert path.read_bytes() == content
     if expected.startswith("newer") or "newer" in expected:
@@ -360,13 +381,18 @@ def test_restart_reopens_the_last_workspace_and_reports_failures_without_blockin
     stored = PreferencesStore(preferences).reload().preferences
     assert stored.extra[LAST_WORKSPACE] == str(path.resolve())
     assert stored.theme == "system"  # workspaces never carry or change the theme
+    wait_for_layout(qtbot, window)
     expected = window.workspace_manager.capture()
+    assert weights(expected.layout)  # the demo's 3:1 plot/value split is kept
     window.close()
 
     restarted = make_window(qtbot, PreferencesStore(preferences))
     manager = restarted.workspace_manager
     assert manager.path == path.resolve() and manager.name == "Demo overview"
+    # Restored before the window was shown; sizes are applied again after show.
+    wait_for_layout(qtbot, restarted)
     assert structure(manager.capture().layout) == structure(expected.layout)
+    assert weights(manager.capture().layout) == pytest.approx(weights(expected.layout), abs=0.05)
     assert without_layout(manager.capture()) == without_layout(expected)
     assert "Extra plot" in [d.windowTitle() for d in restarted.workspace_docks.docks.values()]
     restarted.close()
@@ -561,3 +587,30 @@ def test_placeholder_traces_can_be_moved_removed_and_bound_traces_replaced(qtbot
     assert process.binding is not None and process.binding[0] == "motion.speed"
     assert "Missing" not in process.feedback.text()
     window.close()
+
+
+def test_every_analysis_tool_reopens_with_its_configuration(qtbot, tmp_path):
+    path = tmp_path / "tools.json"
+    window = make_window(qtbot)
+    open_simulator(qtbot, window)
+    analysis = window.analysis_docks
+    configured: dict[str, Any] = {}
+    for tool in TOOLS:
+        widget = analysis.open(tool.key).widget()
+        if tool.key == "histogram":
+            widget.restore_configuration({"bins": 17})  # type: ignore[union-attr]
+        if hasattr(widget, "configuration"):
+            configured[tool.key] = widget.configuration()  # type: ignore[union-attr]
+    assert configured["histogram"] == {"bins": 17}
+    assert window.workspace_manager.save_as(path), window.workspace_manager.last_message
+    window.close()
+
+    restarted = make_window(qtbot)
+    open_simulator(qtbot, restarted)
+    assert restarted.workspace_manager.open_file(path)
+    docks = restarted.analysis_docks.docks
+    assert set(docks) == {tool.key for tool in TOOLS}
+    for key, settings in configured.items():
+        assert not docks[key].isHidden()
+        assert docks[key].widget().configuration() == settings  # type: ignore[union-attr]
+    restarted.close()

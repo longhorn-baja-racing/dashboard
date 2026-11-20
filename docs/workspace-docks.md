@@ -42,6 +42,11 @@ tab, and hidden or floating docks. It does not store telemetry, file paths,
 source locations, pixel positions or the theme. The file format is described
 in `docs/workspace-format.md`.
 
+Relative sizes are applied again after the window is shown and its layout has
+settled, so a workspace restored at startup keeps its proportions. Dock
+contents scroll when a dock is small instead of forcing a large minimum size,
+so saved proportions also fit on smaller screens.
+
 The import preview lists every widget and every signal binding, and says which
 bindings resolve against the open session and which will be placeholders.
 

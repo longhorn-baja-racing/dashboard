@@ -13,9 +13,11 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
+    QFrame,
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -125,7 +127,13 @@ class SignalDock(QDockWidget):
             layout.addWidget(fit)
         layout.addWidget(bind)
         layout.addWidget(remove)
-        self.setWidget(body)
+        # Scroll rather than demand space: the controls stack tall, and a large
+        # minimum height would make saved split sizes impossible on small screens.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        self.setWidget(scroll)
 
     def bind_selected(self) -> None:
         descriptor = self.workspace.descriptor(self.workspace.selected_id())
