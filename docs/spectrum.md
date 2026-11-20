@@ -2,8 +2,9 @@
 
 `lbr_dashboard.core.spectrum` computes the one-sided amplitude spectrum and the
 one-sided power spectral density (PSD) of one uniformly sampled numeric signal
-with `numpy.fft.rfft`. `lbr_dashboard.ui.spectrum_widget` draws the result. The
-widget is not wired into the main window yet.
+with `numpy.fft.rfft`. `lbr_dashboard.ui.spectrum_widget` draws the result, and
+**Analysis > Spectrum** (`lbr_dashboard.ui.tools.spectrum`) shows it for the
+signal selected in the signal browser.
 
 ## Inputs
 
@@ -117,6 +118,10 @@ integer-nanosecond rounding of any realistic rate (for example 3 kHz is
 dropped sample (that spacing is about 100 % too long). A caller can pass a looser `max_jitter` (below 0.5); the
 measured value is always returned as `Spectrum.max_jitter`.
 
+`SamplingError.index` is the sample the problem was found at (the first
+missing value, the first out-of-order timestamp, or the sample after the worst
+spacing), or None for too few samples or a bad timestamp type.
+
 Option errors (unknown window or detrend, bad `max_jitter`, mismatched lengths)
 raise a plain `ValueError`, not `SamplingError`.
 
@@ -133,10 +138,64 @@ and `peak` (`frequency_hz`, `amplitude`, `psd`).
 
 `SpectrumWidget.show_spectrum(result, name, mode="amplitude")` plots amplitude
 (or, with `mode="psd"`, the PSD) against frequency in Hz, labels the y axis
-with the unit, marks the peak, and prints the sample rate, resolution, Nyquist,
+with the unit, marks the peak, and prints the scaling (what the y values are
+and which window correction they carry), sample rate, resolution, Nyquist,
 sample count, window, detrend, measured jitter and the peak under the plot.
-`show_error(name, message)` shows a `SamplingError` message with no curve, so a
-rejected selection never looks like a result. `clear()` resets the view.
+`show_error(name, message)` hides the plot and shows the `SamplingError`
+message in its place, so a rejected selection never looks like a result.
+`clear()` resets the view. The plot title follows the axis text color, so a
+themed plot keeps a readable title.
+
+## Analysis > Spectrum
+
+The tool opens as a dock and follows the shared analysis state:
+
+- Signal: the one selected in the signal browser. Non-numeric signals (boolean,
+  string, event, vector, status) show a note instead of a plot.
+- Range: the shared time interval (Analysis > Select visible time range, then
+  drag its edges). With no interval it uses the whole session. The line above
+  the options names the signal, the range and the number of samples in it.
+- Options: **Window** (Hann or none), **Detrend** (remove mean, remove linear
+  trend, or none) and **Scale** (amplitude or PSD).
+- Invalid sampling (too few samples, missing readings, gaps or irregular
+  spacing) hides the plot and shows the reason, with the session time of the
+  offending sample where there is one. Nothing is resampled.
+- The plot uses the application theme and restyles when the theme changes.
+- It recomputes at most every 100 ms while a source streams. The replay cursor
+  does not affect it.
+
+`SpectrumTool.configuration()` returns `{"window", "detrend", "scale"}` and
+`restore_configuration(config)` applies one. Missing keys take the defaults
+(`hann`, `mean`, `amplitude`); unknown keys are ignored; an unknown value or a
+non-dict raises `ValueError` and changes nothing.
+
+## Try it (Windows)
+
+From the repository root in PowerShell, with the development environment set
+up as in the README:
+
+```powershell
+.venv\Scripts\python -m lbr_dashboard
+```
+
+1. In the source picker choose **Simulator - process (finite)** and press
+   Connect. It produces 3 s of fictional data.
+2. In the signal browser select `process.pressure` (100 Hz, Pa, a repeating
+   0, 5, 8, 3 Pa cycle).
+3. Open **Analysis > Spectrum**. With no interval it covers the whole session,
+   which has null readings at 0.5 s and dropped readings at 0.2 s and 0.7 s,
+   so the dock shows "no spectrum" with the reason (missing values at
+   0.500 s) instead of a plot.
+4. Zoom the main plot to roughly 1 s to 3 s and press **Ctrl+I** (Analysis >
+   Select visible time range). The dock now plots a single peak near 25 Hz
+   (a quarter of the 100 Hz rate) of about 4.1 Pa (`sqrt(17)`; slightly lower
+   when the interval is not a whole number of cycles), with sample rate
+   100 Hz, Nyquist 50 Hz, resolution about 0.5 Hz and jitter 0.000 %.
+5. Switch **Scale** to PSD to see the same peak in `Pa^2/Hz`, and **Window**
+   to none to compare leakage. Drag the interval over 0.7 s to see the gap
+   rejected.
+
+`process.temperature` (1 Hz, 4 samples) shows the too-few-samples message.
 
 ## Limitations
 
@@ -147,5 +206,4 @@ rejected selection never looks like a result. `clear()` resets the view.
   more exact off-bin amplitude can be added when needed.
 - No resampling. A signal with gaps or irregular timing needs an explicit
   resampling step that the user chooses and sees.
-- Input selection (#21 query, #42 interval) and app integration (#37) are not
-  part of this module.
+- The tool computes one signal at a time, over at most one interval.
