@@ -37,6 +37,7 @@ class AnalysisContext(QObject):
     cursor_changed = Signal()
     interval_changed = Signal()
     theme_changed = Signal()
+    main_plot_changed = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -44,6 +45,9 @@ class AnalysisContext(QObject):
         self.snapshot: SessionSnapshot | None = None
         self.selected_id: str | None = None
         self.cursor_ns: int | None = None
+        self.following_live = False
+        self.main_plot: pg.PlotWidget | None = None
+        self.main_plot_signal_id: str | None = None
         self.selection = IntervalSelection()
         self.plot_colors = ("#202020", "#eeeeee")
         self._descriptors: dict[str, SignalDescriptor] = {}
@@ -88,10 +92,24 @@ class AnalysisContext(QObject):
             self.selected_id = signal_id
             self.signal_changed.emit()
 
-    def set_cursor(self, time_ns: int | None) -> None:
-        if time_ns != self.cursor_ns:
+    def set_cursor(self, time_ns: int | None, *, live: bool = False) -> None:
+        """Move the replay cursor; ``live`` is true while the clock follows live data."""
+
+        if time_ns != self.cursor_ns or live != self.following_live:
             self.cursor_ns = time_ns
+            self.following_live = live
             self.cursor_changed.emit()
+
+    def set_main_plot(self, plot: pg.PlotWidget | None, signal_id: str | None) -> None:
+        """Record the main time plot and the signal it shows, then emit ``main_plot_changed``.
+
+        Called after every redraw, even when nothing changed here: the plot may
+        have been cleared and drawn again, removing items that tools added.
+        """
+
+        self.main_plot = plot
+        self.main_plot_signal_id = signal_id if plot is not None else None
+        self.main_plot_changed.emit()
 
     def set_plot_colors(self, background: str, text: str) -> None:
         """Record the theme's plot colors and restyle every tool plot."""
@@ -243,12 +261,14 @@ class AnalysisDocks:
 
         current = self.region
         attached = current is not None and current.region.scene() is not None
-        if plot is self._plot and origin_ns == self._origin_ns and attached:
-            return
-        if current is not None:
-            current.detach()
-        self._plot, self._origin_ns = plot, origin_ns
-        self.region = IntervalRegion(plot, self.context.selection, PlotTimeScale.seconds(origin_ns))
+        if not (plot is self._plot and origin_ns == self._origin_ns and attached):
+            if current is not None:
+                current.detach()
+            self._plot, self._origin_ns = plot, origin_ns
+            self.region = IntervalRegion(
+                plot, self.context.selection, PlotTimeScale.seconds(origin_ns)
+            )
+        self.context.set_main_plot(plot, self.context.selected_id)
 
     def leave_plot(self) -> None:
         """Remove the region, e.g. while the plot shows something other than a session."""
@@ -257,6 +277,7 @@ class AnalysisDocks:
             self.region.detach()
         self.region = None
         self._plot = self._origin_ns = None
+        self.context.set_main_plot(None, None)
 
     def select_visible_range(self) -> TimeInterval | None:
         region = self.region

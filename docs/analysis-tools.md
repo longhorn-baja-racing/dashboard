@@ -15,6 +15,8 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `following_live` | true while the replay bar follows live data | `cursor_changed` |
+| `main_plot` / `main_plot_signal_id` | the main time plot and the signal it shows | `main_plot_changed` |
 
 Helpers:
 
@@ -24,6 +26,10 @@ Helpers:
 - `reading_at(signal_id, time_ns)` returns the last reading at or before a time.
 - `style_plot(plot_widget)` colors a tool's PyQtGraph plot for the current theme
   and again after every theme change, until the plot is deleted.
+
+`main_plot_changed` is emitted after every redraw of the main plot, even when
+the plot and signal stay the same: a redraw can clear items that tools added,
+so a tool drawing on the main plot checks its items and adds them again.
 
 A legacy table import clears the context, so no tool keeps showing a session
 that is no longer loaded.
@@ -44,3 +50,4 @@ The dock is created the first time the menu entry is used and reused after that.
 | Menu entry | Module | Issue |
 | --- | --- | --- |
 | Statistics | `ui/tools/statistics.py` | #43 |
+| Thresholds | `ui/tools/thresholds.py` | #60 |
