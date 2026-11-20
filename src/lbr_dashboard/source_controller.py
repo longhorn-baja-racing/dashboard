@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from time import monotonic, monotonic_ns
 
@@ -31,6 +32,16 @@ from .importers.mapped_csv import CsvMappingError, MappedCsvImporter, read_sampl
 from .replay_controller import ReplayController
 from .ui.csv_mapping_dialog import CsvMappingDialog
 from .ui.main_window import MainWindow
+from .ui.tools.session_overlay import TOOL as COMPARE_SESSIONS
+from .ui.tools.session_overlay import (
+    ComparisonPreset,
+    ComparisonSources,
+    Prepare,
+    SessionOverlayTool,
+)
+
+# While a live source streams, derived signals are evaluated at most this often.
+DERIVED_INTERVAL_S = 0.25
 
 # While a live source streams, derived signals are evaluated at most this often.
 DERIVED_INTERVAL_S = 0.25
@@ -122,6 +133,7 @@ class SourceController(QObject):
                 _prepare_lbrlog,
             )
         )
+        self._offer_comparison_sources()
         window.source_picker.connect_requested.connect(self.choose)
         window.source_picker.disconnect_requested.connect(self.disconnect)
         window.source_picker.retry_requested.connect(self.retry)
@@ -134,6 +146,25 @@ class SourceController(QObject):
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.poll)
         self.timer.start()
+
+    def _offer_comparison_sources(self) -> None:
+        """Let Analysis > Compare sessions read CSV files and the finite simulators."""
+
+        def open_file(path: Path) -> Prepare:
+            def prepare(token: CancellationToken) -> Callable[[], TelemetrySource]:
+                return prepare_csv(path, token).source
+
+            return prepare
+
+        presets = tuple(
+            ComparisonPreset(option.key, f"{option.label} (finite)", option.prepare)
+            for key, option in self._options.items()
+            if key in {"process", "motion"}
+        )
+        sources = ComparisonSources(open_file, "timestamp_ms CSV files (*.csv)", presets)
+        self.window.analysis_docks.tools[COMPARE_SESSIONS.key] = replace(
+            COMPARE_SESSIONS, create=partial(SessionOverlayTool, sources=sources)
+        )
 
     def register(self, option: SourceOption) -> None:
         if option.key in self._options:
