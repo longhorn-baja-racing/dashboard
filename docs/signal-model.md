@@ -40,6 +40,12 @@ descriptor boundary: call `descriptor.validate_sample(sample)`,
 `series.validate(descriptor)`, or pass `descriptor=` to `SignalSeries.from_samples`
 or `from_dict`. A standalone sample cannot infer its descriptor's type.
 
+A vector declares its coordinate frame with a `frame` (or `coordinate_frame`,
+`reference_frame`) metadata value, and a quaternion declares
+`quaternion_order` and `quaternion_convention`; see
+[coordinate-frames.md](coordinate-frames.md) and [orientation.md](orientation.md).
+Without them no frame or orientation meaning is assumed.
+
 Units are opaque nonempty tokens without whitespace (for example `Pa`, `psi`,
 `m/s²`, `°C`); no unit vocabulary or conversion is imposed. A sample can retain
 its original unit even when it differs from the descriptor's canonical unit.

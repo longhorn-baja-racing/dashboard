@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from heapq import heapify, heappop, heappush
-from math import isfinite
+from math import cos, isfinite, pi, radians, sin
 from random import Random
 from threading import Lock
 from time import monotonic_ns
@@ -331,10 +331,20 @@ class SimulatorSource(IteratorSource):
 def example_signals(
     family: str = "process", *, source_id: str = "simulator"
 ) -> tuple[SimulatedSignal, ...]:
-    """Two fictional, unrelated examples; these are not application-required channels."""
+    """Fictional, unrelated examples; these are not application-required channels.
+
+    ``attitude`` is a fictional orientation demo: a declared unit quaternion and
+    two 3-vectors, one with a declared ``sensor`` frame and one without a frame.
+    It does not model any particular sensor.
+    """
 
     def model(
-        identifier: str, kind: str, unit: str | None, rate: float, shape: tuple[int, ...] = ()
+        identifier: str,
+        kind: str,
+        unit: str | None,
+        rate: float,
+        shape: tuple[int, ...] = (),
+        extra: dict[str, Any] | None = None,
     ):
         return SignalDescriptor(
             identifier,
@@ -346,6 +356,8 @@ def example_signals(
             nominal_rate_hz=rate,
             shape=shape,
             timestamp_domain="relative",
+            extra=extra or {},
+            description="Fictional demo signal, not a real sensor" if extra else "",
         )
 
     if family == "process":
@@ -375,4 +387,55 @@ def example_signals(
             SimulatedSignal(model("motion.enabled", "boolean", None, 1), (False, True)),
             SimulatedSignal(model("motion.notice", "event", None, 1), ({"code": "tick"},)),
         )
-    raise ValueError("unknown example family; choose process or motion")
+    if family == "attitude":
+        return (
+            SimulatedSignal(
+                model(
+                    "attitude.quaternion",
+                    "vector",
+                    None,
+                    20,
+                    (4,),
+                    {
+                        "frame": "sensor",
+                        "quaternion_order": "wxyz",
+                        "quaternion_convention": "hamilton",
+                        "attitude_reference": "level",
+                        "yaw_reference": "relative to start (fictional, drifts)",
+                    },
+                ),
+                example_attitude_cycle(),
+                unavailable=((30, 34),),
+                stale=((45, 50),),
+            ),
+            SimulatedSignal(
+                model("attitude.acceleration", "vector", "m/s^2", 20, (3,), {"frame": "sensor"}),
+                ([0.0, 0.0, 9.81], [1.0, 0.0, 9.81], [0.0, 1.0, 9.81]),
+            ),
+            SimulatedSignal(
+                model("attitude.rate", "vector", "rad/s", 20, (3,)),
+                ([0.0, 0.0, 0.5], [0.1, 0.0, 0.5]),
+            ),
+        )
+    raise ValueError("unknown example family; choose process, motion or attitude")
+
+
+def example_attitude_cycle(steps: int = 40) -> tuple[tuple[float, float, float, float], ...]:
+    """Unit quaternions (w, x, y, z): yaw turns once while roll and pitch rock gently."""
+
+    cycle = []
+    for index in range(steps):
+        phase = 2 * pi * index / steps
+        roll, pitch, yaw = radians(10 * sin(phase)), radians(5 * cos(phase)), phase
+        cr, sr = cos(roll / 2), sin(roll / 2)
+        cp, sp = cos(pitch / 2), sin(pitch / 2)
+        cy, sy = cos(yaw / 2), sin(yaw / 2)
+        cycle.append(
+            (
+                round(cr * cp * cy + sr * sp * sy, 9),
+                round(sr * cp * cy - cr * sp * sy, 9),
+                round(cr * sp * cy + sr * cp * sy, 9),
+                round(cr * cp * sy - sr * sp * cy, 9),
+            )
+        )
+    return tuple(cycle)

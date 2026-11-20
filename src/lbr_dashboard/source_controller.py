@@ -109,7 +109,8 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
-        # The snapshot every view shows: the session snapshot plus derived signals.
+        # The snapshot every view shows: the session snapshot plus transformed and
+        # derived signals.
         self._view: SessionSnapshot | None = None
         self._derived_at = 0.0
         self._derived_timer = QTimer(self)
@@ -124,7 +125,7 @@ class SourceController(QObject):
         self.list_serial_ports: Callable[[], list[SerialPortInfo]] = list_serial_ports
         self.open_serial_port: PortOpener = open_serial_port
         self.serial_discovery_s = DISCOVERY_S
-        for family in ("process", "motion", "live"):
+        for family in ("process", "motion", "attitude", "live"):
 
             def prepare(token, family=family):
                 token.raise_if_cancelled()
@@ -156,6 +157,7 @@ class SourceController(QObject):
         window.source_picker.rate_requested.connect(lambda: self.operate("rate"))
         window.left_panel.list_widget.currentRowChanged.connect(self.select)
         window.left_panel.signal_browser.signal_selected.connect(self.select_signal)
+        window.analysis.frames_changed.connect(self._frames_changed)
         window.analysis.derived_changed.connect(self._derived_changed)
         self.timer = QTimer(self)
         self.timer.setInterval(30)
@@ -643,10 +645,19 @@ class SourceController(QObject):
         self._render()
         self.replay.present()
 
+    def _frames_changed(self) -> None:
+        """Show the results of changed coordinate-frame transforms right away."""
+        if self.session is not None:
+            self._render(force=True)
+
     def _render(self, *, force: bool = False) -> None:
         if self.session is None:
             return
-        snapshot = self._augment(self.session.snapshot(), force=force)
+        # Transformed and derived signals are added beside the raw ones; raw
+        # records stay unchanged. Transforms come first so derived signals can
+        # use their results.
+        framed = self.window.analysis.frames.augment(self.session, self.session.snapshot())
+        snapshot = self._augment(framed, force=force)
         self._view = snapshot
         self.window.workspace_docks.update_snapshot(snapshot)
         self.window.analysis.set_snapshot(self.session, snapshot, log_path=self.log_path)

@@ -1,7 +1,8 @@
 # Deterministic generic simulator
 
-Issue #23 adds `SimulatedSignal`, `SimulatorSource`, `SimulatorStats` and two
-fictional `example_signals` families. They use the #18 descriptors and the #20
+Issue #23 adds `SimulatedSignal`, `SimulatorSource`, `SimulatorStats` and
+fictional `example_signals` families (`process`, `motion`, and `attitude` for
+the orientation and coordinate-frame demos). They use the #18 descriptors and the #20
 source contract; no hardware, framing codec, replay clock or vehicle model is
 required. No channel name is required by the application. The standalone CSV
 fixtures in #105 and the production M0 source-selection UI in #102 remain
@@ -96,6 +97,9 @@ For `seed=17`, `start_ns=0`, `duration_ns=1000000000`, adequate queue capacity:
 | motion.speed | 3 Hz | Four records at exact floor-rounded offsets; cycle 0,4,8 rad/s with seeded ±0.2 noise. |
 | motion.enabled | 1 Hz | Two records: false and true, both available. |
 | motion.notice | 1 Hz | Two independent structured events, each with code tick. |
+| attitude.quaternion | 20 Hz | Unit quaternions (w, x, y, z), declared `quaternion_order` `wxyz`, `quaternion_convention` `hamilton`, frame `sensor`; yaw turns once per 40 samples. Indices 30-33 unavailable, 45-49 stale. See orientation.md. |
+| attitude.acceleration | 20 Hz | Three-vectors in declared frame `sensor`, cycle [0,0,9.81], [1,0,9.81], [0,1,9.81] m/s^2. See coordinate-frames.md. |
+| attitude.rate | 20 Hz | Three-vectors without a declared frame, so no frame transform applies. |
 
 These are illustrative bench datasets, not selected hardware or required vehicle
 channels. Callers may replace every descriptor and cycle with unrelated names,

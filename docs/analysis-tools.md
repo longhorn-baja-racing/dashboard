@@ -21,6 +21,7 @@ source controller and replay controller keep it current:
 | `plot` / `plot_origin_ns` | the main time plot and its x origin (x is seconds since it) | `plot_changed` |
 | `plot_signal_id` | the signal the main time plot shows | `plot_changed` |
 | `following_live` | true while the replay bar follows live data | `cursor_changed` |
+| `frames` | the applied coordinate-frame transforms (`core.frames.FrameTransformSet`); their results are part of `snapshot`, see [coordinate-frames.md](coordinate-frames.md) | `frames_changed` |
 
 The snapshot already contains the applied derived signals, so every tool can
 use them like recorded signals.
