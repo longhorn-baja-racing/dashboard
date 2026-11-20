@@ -34,17 +34,12 @@ that is no longer loaded.
    needs. Coalesce refreshes with a short single-shot timer when the work is
    more than trivial, because snapshots arrive often while a source streams.
 2. Export `TOOL = AnalysisTool("key", "Menu label", WidgetClass)` from a module
-   in `lbr_dashboard/ui/tools/`.
-3. Add it to `TOOLS` in `lbr_dashboard/ui/tools/__init__.py`.
+   in `lbr_dashboard/ui/tools/`. Every such module is found automatically and
+   listed alphabetically by label in the Analysis menu; keys must be unique.
 
 The dock is created the first time the menu entry is used and reused after that.
 
-The Analysis menu also has **Save main plot as PNG...**, which writes the main
-plot with its axes, title and a legend (see [export.md](export.md)).
-
 ## Tools
 
-| Menu entry | Module | Issue |
-| --- | --- | --- |
-| Statistics | `ui/tools/statistics.py` | #43 |
-| Export | `ui/tools/export.py` (raw CSV, see [export.md](export.md)) | #69 |
+Each tool module in `lbr_dashboard/ui/tools/` and its doc page describe what
+the tool shows; the Analysis menu lists them all.

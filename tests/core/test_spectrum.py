@@ -243,6 +243,23 @@ def test_invalid_sampling_is_rejected(times: list[int], values: list, match: str
         assert "resample" in str(raised.value)
 
 
+@pytest.mark.parametrize(
+    ("times", "values", "index"),
+    [
+        pytest.param(_T, _with(_V, 5, None), 5, id="first-missing"),
+        pytest.param(_with(_T, 4, _T[2]), _V, 4, id="decreasing"),
+        pytest.param(_T[:50] + _T[51:], _V[:99], 50, id="after-gap"),
+        pytest.param(_T[:3], _V[:3], None, id="too-few"),
+    ],
+)
+def test_sampling_error_names_the_offending_sample(
+    times: list[int], values: list, index: int | None
+) -> None:
+    with pytest.raises(SamplingError) as raised:
+        spectrum(times, values)
+    assert raised.value.index == index
+
+
 def test_jitter_within_tolerance_is_accepted_and_reported() -> None:
     times = _with(_T, 10, _T[10] + 50_000)  # 0.5 % of the 10 ms spacing
     result = spectrum(times, _V)
