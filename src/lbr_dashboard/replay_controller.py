@@ -79,6 +79,7 @@ class ReplayController(QObject):
         bar.pause_requested.connect(self.pause)
         bar.speed_requested.connect(self.speed)
         bar.live_requested.connect(self.follow)
+        window.analysis.seek_requested.connect(self.seek)
         application = QApplication.instance()
         assert application is not None
         application.installEventFilter(self)
@@ -148,6 +149,18 @@ class ReplayController(QObject):
         assert frame.start_ns is not None and frame.end_ns is not None
         self.clock.seek(frame.start_ns + (frame.end_ns - frame.start_ns) * position // SLIDER_STEPS)
         self.present()
+
+    def seek(self, time_ns: int) -> bool:
+        """Pause and move the cursor to ``time_ns``, clamped to the session.
+
+        Works whenever the replay slider does; returns whether the cursor moved.
+        """
+
+        if not self.window.replay_bar.slider.isEnabled():
+            return False
+        self.clock.seek(time_ns)
+        self.present()
+        return True
 
     def speed(self, rate: float) -> None:
         if self.window.replay_bar.speed.isEnabled():

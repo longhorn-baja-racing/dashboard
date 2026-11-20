@@ -275,7 +275,7 @@ class ThresholdsTool(QWidget):
         for change in (context.snapshot_changed, context.signal_changed, context.cursor_changed):
             change.connect(self.timer.start)
         context.signal_changed.connect(self._follow_selected_signal)
-        context.main_plot_changed.connect(self._sync_lines)
+        context.plot_changed.connect(self._sync_lines)
         self._update_signal_choices()
         self._follow_selected_signal()
         self.refresh()
@@ -614,8 +614,8 @@ class ThresholdsTool(QWidget):
         """Draw rule levels on the main plot; re-add them after the plot was cleared."""
 
         context = self.context
-        plot = context.main_plot
-        signal_id = context.main_plot_signal_id
+        plot = context.plot
+        signal_id = context.plot_signal_id
         spec: tuple[tuple[object, ...], ...] = ()
         if plot is not None and signal_id is not None and signal_id == context.selected_id:
             specs: list[tuple[object, ...]] = []
