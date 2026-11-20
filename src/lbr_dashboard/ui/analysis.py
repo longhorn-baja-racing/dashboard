@@ -19,6 +19,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
 
 from ..core import SessionSnapshot, SignalDescriptor
+from ..core.derived_session import DerivedSignalSet
 from ..core.interval import IntervalSelection, TimeInterval
 from ..core.source_monitor import SourceMonitorReport
 from .interval_region import IntervalRegion, PlotTimeScale
@@ -39,6 +40,7 @@ class AnalysisContext(QObject):
     cursor_changed = Signal()
     interval_changed = Signal()
     theme_changed = Signal()
+    derived_changed = Signal()
     source_health_changed = Signal()
     plot_changed = Signal()
     seek_requested = Signal(object)
@@ -59,6 +61,10 @@ class AnalysisContext(QObject):
         self.source_health: SourceMonitorReport | None = None
         self._descriptors: dict[str, SignalDescriptor] = {}
         self.selection.subscribe(lambda _interval: self.interval_changed.emit())
+        # Derived signal definitions outlive any one session; the source controller
+        # evaluates them into every snapshot it shows.
+        self.derived = DerivedSignalSet()
+        self.derived.subscribe(self.derived_changed.emit)
 
     @property
     def interval(self) -> TimeInterval | None:

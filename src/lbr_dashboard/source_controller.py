@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QAbstractItemView, QFileDialog
 from .core import (
     BackgroundService,
     CancellationToken,
+    SessionSnapshot,
     SignalSchema,
     SimulatorSource,
     SourceState,
@@ -21,6 +22,7 @@ from .core import (
     example_signals,
 )
 from .core.csv_mapping import CsvMapping
+from .core.derived_session import is_derived
 from .core.source_health import summary_text
 from .core.source_monitor import SourceHealthMonitor
 from .importers.csv_source import MAPPED_PREVIEW_ROWS, prepare_csv, prepare_mapped_csv
@@ -29,6 +31,9 @@ from .importers.mapped_csv import CsvMappingError, MappedCsvImporter, read_sampl
 from .replay_controller import ReplayController
 from .ui.csv_mapping_dialog import CsvMappingDialog
 from .ui.main_window import MainWindow
+
+# While a live source streams, derived signals are evaluated at most this often.
+DERIVED_INTERVAL_S = 0.25
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,13 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
+        # The snapshot every view shows: the session snapshot plus derived signals.
+        self._view: SessionSnapshot | None = None
+        self._derived_at = 0.0
+        self._derived_timer = QTimer(self)
+        self._derived_timer.setSingleShot(True)
+        self._derived_timer.setInterval(int(DERIVED_INTERVAL_S * 1000))
+        self._derived_timer.timeout.connect(self._refresh_view)
         self.health_clock: Callable[[], int] = monotonic_ns
         self.health: SourceHealthMonitor | None = None
         self.mapping_dialog: CsvMappingDialog | None = None
@@ -117,6 +129,7 @@ class SourceController(QObject):
         window.source_picker.rate_requested.connect(lambda: self.operate("rate"))
         window.left_panel.list_widget.currentRowChanged.connect(self.select)
         window.left_panel.signal_browser.signal_selected.connect(self.select_signal)
+        window.analysis.derived_changed.connect(self._derived_changed)
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.poll)
@@ -282,6 +295,7 @@ class SourceController(QObject):
         if self.source is not None or self._preparing is not None or self.session is not None:
             self.disconnect()
             self.session = None
+            self._view = None
             self.window.workspace_docks.update_snapshot(None)
             self.window.analysis.clear()
             self.window.analysis_docks.leave_plot()
@@ -326,6 +340,7 @@ class SourceController(QObject):
             # A CSV replay may say which rows its import skipped.
             self._notice = getattr(self.source, "import_summary", "")
             self._revision = -1
+            self._view = None
             self._displayed_schema = None
             self._finished_rendered = False
         except Exception as error:
@@ -406,7 +421,6 @@ class SourceController(QObject):
             observer = self.health.observe_events if self.health is not None else None
             self.session.ingest_source(self.source, limit=512, observer=observer)
             snapshot = self.session.snapshot()
-            replay_snapshot = snapshot
             finished = self.source.join(0) and self.source.events.stats.buffered == 0
             if snapshot.revision != self._revision or finished:
                 self._revision = snapshot.revision
@@ -414,9 +428,23 @@ class SourceController(QObject):
                 self._render()
                 if finished and self.window.right_panel.time_plot.timer.isActive():
                     self.window.right_panel.time_plot.refresh()
+            replay_snapshot = self._view if self._view is not None else snapshot
+        self._update_replay(replay_snapshot)
+        self.window.analysis.set_source_health(self.health.report() if self.health else None)
+        self._present()
+        if (
+            self._closing
+            and self.source is None
+            and self._preparing is None
+            and not self._releasing
+        ):
+            self.timer.stop()
+            self.window.close()
+
+    def _update_replay(self, snapshot: SessionSnapshot | None) -> None:
         self.replay.update(
             self.session,
-            snapshot=replay_snapshot,
+            snapshot=snapshot,
             live=self.source.capabilities.is_live if self.source is not None else None,
             ready=(
                 self.source is None or self._finished_rendered or self.source.capabilities.is_live
@@ -432,16 +460,44 @@ class SourceController(QObject):
             ),
             busy=self._preparing is not None or self._releasing or self._closing,
         )
-        self.window.analysis.set_source_health(self.health.report() if self.health else None)
-        self._present()
-        if (
-            self._closing
-            and self.source is None
-            and self._preparing is None
-            and not self._releasing
-        ):
-            self.timer.stop()
-            self.window.close()
+
+    def _refresh_view(self) -> None:
+        """Show the latest derived results, e.g. after evaluation was deferred."""
+        if self.session is not None:
+            self._render(force=True)
+            self._update_replay(self._view)
+
+    def _derived_changed(self) -> None:
+        if self.session is None:
+            return
+        selected = self.window.left_panel.signal_browser.selected_id
+        view = self._view
+        shown = (
+            next((d for d in view.schema.signals if d.identifier == selected), None)
+            if view is not None
+            else None
+        )
+        derived_ids = {d.output_id for d in self.window.analysis.derived.definitions}
+        if is_derived(shown) or selected in derived_ids:
+            # A changed expression must redraw the trace from scratch.
+            self.window.right_panel._reset_plot()
+        self._refresh_view()
+
+    def _augment(self, snapshot: SessionSnapshot, *, force: bool) -> SessionSnapshot:
+        """Add derived signals; keep work bounded while a source is still delivering."""
+        derived = self.window.analysis.derived
+        source = self.source
+        now = monotonic()
+        loading = source is not None and not source.capabilities.is_live
+        loading = loading and not self._finished_rendered
+        live = source is not None and source.capabilities.is_live
+        stale = not force and (loading or (live and now - self._derived_at < DERIVED_INTERVAL_S))
+        view = derived.augment(self.session, snapshot, reuse_stale=stale)
+        if not stale:
+            self._derived_at = now
+        elif live and derived.definitions and not self._derived_timer.isActive():
+            self._derived_timer.start()
+        return view
 
     def _record_final_health(self, source: TelemetrySource) -> None:
         """Keep the released source's last health so analysis sees it disconnected."""
@@ -493,16 +549,18 @@ class SourceController(QObject):
     def select_signal(self, identifier: str) -> None:
         if self.session is None or not identifier:
             return
+        schema = self._view.schema if self._view is not None else self.session.schema
         self._selected = next(
-            (i for i, d in enumerate(self.session.schema.signals) if d.identifier == identifier), -1
+            (i for i, d in enumerate(schema.signals) if d.identifier == identifier), -1
         )
         self._render()
         self.replay.present()
 
-    def _render(self) -> None:
+    def _render(self, *, force: bool = False) -> None:
         if self.session is None:
             return
-        snapshot = self.session.snapshot()
+        snapshot = self._augment(self.session.snapshot(), force=force)
+        self._view = snapshot
         self.window.workspace_docks.update_snapshot(snapshot)
         self.window.analysis.set_snapshot(self.session, snapshot, log_path=self.log_path)
         descriptors = snapshot.schema.signals

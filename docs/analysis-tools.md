@@ -15,11 +15,15 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `derived` | the applied derived signal definitions (see `docs/derived-signals.md`) | `derived_changed` |
 | `source_health` | the latest `SourceMonitorReport` of the active (or last) source, or None | `source_health_changed` |
 | `log_path` | the file the session was read from, or None (simulators) | `snapshot_changed` |
 | `plot` / `plot_origin_ns` | the main time plot and its x origin (x is seconds since it) | `plot_changed` |
 | `plot_signal_id` | the signal the main time plot shows | `plot_changed` |
 | `following_live` | true while the replay bar follows live data | `cursor_changed` |
+
+The snapshot already contains the applied derived signals, so every tool can
+use them like recorded signals.
 
 Helpers:
 
