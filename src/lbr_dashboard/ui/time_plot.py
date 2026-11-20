@@ -114,7 +114,8 @@ class TimePlot(QObject):
             self.plot.setTitle(escape(name))
             self.plot.setLabel("bottom", "Measurement time since first reading", units="s")
             self.plot.setLabel("left", escape(name), units=escape(unit or ""))
-            self.curve = self.plot.plot(pen=pg.mkPen(TRACE_COLOR, width=2))
+            # The name labels the trace in exported images (see plot_export).
+            self.curve = self.plot.plot(pen=pg.mkPen(TRACE_COLOR, width=2), name=escape(name))
         self.bounds, self.query = bounds, query
         if changed:
             self.refresh()
