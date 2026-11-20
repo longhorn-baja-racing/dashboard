@@ -14,6 +14,9 @@ Rules, in short (docs/filters.md has the details):
   segments, and so does any spacing of at least ``gap_ns`` when that is given.
 - No partial windows: a sample whose full window does not fit inside its
   segment gets no output (NaN in ``values``, ``None`` from ``values_or_none``).
+- An output that cannot be represented (finite inputs near the float limit
+  whose mean overflows) is never emitted as a value; it is counted in
+  ``overflow_count`` instead.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ import numpy.typing as npt
 
 MOVING_AVERAGE = "moving_average"
 #: Bumped whenever the output for the same inputs and parameters would change.
-MOVING_AVERAGE_VERSION = 1
+MOVING_AVERAGE_VERSION = 2
 ALIGNMENTS = ("centered", "trailing")
 DEFAULT_JITTER_TOLERANCE = 0.1
 INT64_MIN = int(np.iinfo(np.int64).min)
@@ -69,10 +72,15 @@ class FilteredSignal:
     ``times_ns`` is a copy of the input timestamps and ``values`` holds one
     output per input sample, NaN where there is no output (missing input or a
     window that does not fit). Both arrays are read-only. ``nominal_period_ns``
-    is the median spacing used for the regularity check, or ``None`` with fewer
-    than two samples. ``missing_count`` counts inputs that were None, NaN or
-    infinite; ``edge_count`` counts valid inputs that got no output because
-    their window did not fit inside their segment.
+    is the median spacing used for the regularity check, or ``None`` when no
+    spacing was checked (fewer than two samples, or every spacing is a time
+    gap). ``max_spacing_deviation`` is the largest relative difference between
+    a checked spacing and the nominal period (0.0 for perfectly regular
+    sampling, at most ``jitter_tolerance``), or ``None`` without a period.
+    ``missing_count`` counts inputs that were None, NaN or infinite;
+    ``edge_count`` counts valid inputs that got no output because their window
+    did not fit inside their segment; ``overflow_count`` counts valid inputs
+    whose full window fit but whose mean is not a finite float.
     """
 
     filter_name: str
@@ -82,9 +90,11 @@ class FilteredSignal:
     times_ns: npt.NDArray[np.int64]
     values: npt.NDArray[np.float64]
     nominal_period_ns: float | None
+    max_spacing_deviation: float | None
     segment_count: int
     missing_count: int
     edge_count: int
+    overflow_count: int
     signal: str = ""
     unit: str = ""
 
@@ -92,7 +102,7 @@ class FilteredSignal:
     def output_count(self) -> int:
         """Number of samples that have a filtered value."""
 
-        return self.input_count - self.missing_count - self.edge_count
+        return self.input_count - self.missing_count - self.edge_count - self.overflow_count
 
     @property
     def window_span_ns(self) -> float | None:
@@ -104,12 +114,15 @@ class FilteredSignal:
 
     @property
     def delay_ns(self) -> float | None:
-        """Group delay of the output relative to the input (0 when centered)."""
+        """Group delay of the output relative to the input (0 when centered).
 
-        if self.params.alignment == "centered":
-            return 0.0
+        ``None`` without a nominal period, whatever the alignment.
+        """
+
         if self.nominal_period_ns is None:
             return None
+        if self.params.alignment == "centered":
+            return 0.0
         return (self.params.window_samples - 1) / 2 * self.nominal_period_ns
 
     def values_or_none(self) -> list[float | None]:
@@ -168,7 +181,7 @@ def moving_average(
     is_time_gap = (
         spacing >= params.gap_ns if params.gap_ns is not None else np.zeros(spacing.shape, bool)
     )
-    period = _nominal_period(spacing, is_time_gap, params.jitter_tolerance)
+    period, deviation = _nominal_period(spacing, is_time_gap, params.jitter_tolerance)
     if period is not None and params.gap_ns is not None:
         if params.gap_ns <= period * (1.0 + params.jitter_tolerance):
             raise ValueError(
@@ -182,17 +195,21 @@ def moving_average(
     offset = window - 1 if params.alignment == "trailing" else (window - 1) // 2
     segments = _segments(valid, is_time_gap)
     fitting = [(start, stop) for start, stop in segments if stop - start >= window]
+    covered = np.zeros(raw.shape, dtype=bool)
     if fitting:
         # Built only when some segment can hold a full window, so an oversized
         # window_samples never allocates a window-length array.
         kernel = np.ones(window)
         for start, stop in fitting:
-            means = np.convolve(raw[start:stop], kernel, mode="valid") / window
+            means = _window_means(raw[start:stop], kernel)
             output[start + offset : start + offset + means.size] = means
+            covered[start + offset : start + offset + means.size] = True
 
     times.setflags(write=False)
     output.setflags(write=False)
     missing = int(raw.size - np.count_nonzero(valid))
+    no_output = valid & np.isnan(output)
+    overflow = int(np.count_nonzero(no_output & covered))
     return FilteredSignal(
         filter_name=MOVING_AVERAGE,
         version=MOVING_AVERAGE_VERSION,
@@ -201,12 +218,32 @@ def moving_average(
         times_ns=times,
         values=output,
         nominal_period_ns=period,
+        max_spacing_deviation=deviation,
         segment_count=len(segments),
         missing_count=missing,
-        edge_count=int(np.count_nonzero(valid & np.isnan(output))),
+        edge_count=int(np.count_nonzero(no_output)) - overflow,
+        overflow_count=overflow,
         signal=signal,
         unit=unit,
     )
+
+
+def _window_means(
+    segment: npt.NDArray[np.float64], kernel: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
+    """Mean of every full window in one segment; NaN where it is not a finite float."""
+
+    window = kernel.size
+    with np.errstate(over="ignore", invalid="ignore"):
+        means = np.asarray(np.convolve(segment, kernel, mode="valid") / window, dtype=np.float64)
+        if not np.isfinite(means).all():
+            # Finite values near the float limit can overflow while summing even
+            # though their mean is representable; scale before summing instead.
+            means = np.asarray(
+                np.convolve(segment / window, kernel, mode="valid"), dtype=np.float64
+            )
+    means[~np.isfinite(means)] = np.nan
+    return means
 
 
 def _checked_params(
@@ -278,14 +315,18 @@ def _out_of_range(index: int, value: int) -> str:
 
 def _nominal_period(
     spacing: npt.NDArray[np.uint64], is_time_gap: npt.NDArray[np.bool_], tolerance: float
-) -> float | None:
-    """Median spacing outside time gaps; raise if any such spacing strays too far."""
+) -> tuple[float | None, float | None]:
+    """Median spacing outside time gaps and the largest relative deviation from it.
+
+    Raise if any such spacing strays more than ``tolerance`` from the median.
+    """
 
     checked = spacing[~is_time_gap]
     if checked.size == 0:
-        return None
+        return None, None
     period = float(np.median(checked))
-    deviation = np.abs(spacing - period) > tolerance * period
+    difference = np.abs(spacing - period)
+    deviation = difference > tolerance * period
     bad = np.flatnonzero(deviation & ~is_time_gap)
     if bad.size:
         index = int(bad[0])
@@ -295,7 +336,7 @@ def _nominal_period(
             f"{tolerance:g} of it ({bad.size} spacing(s) affected); resample first, "
             "raise jitter_tolerance, or set gap_ns to split at long gaps"
         )
-    return period
+    return period, float(np.max(difference[~is_time_gap])) / period
 
 
 def _segments(

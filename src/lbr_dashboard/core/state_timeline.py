@@ -221,6 +221,25 @@ def build_state_timeline(
     )
 
 
+def category_value(value: object) -> object:
+    """Read a status or event record such as ``{"state": "idle"}`` as one category.
+
+    A mapping whose values are all bool/int/float/str/None becomes the string
+    ``"state=idle"`` (``key=value`` pairs in their original order, joined by
+    ``", "``), so equal records form one state. Every other value is returned
+    unchanged, so lists and nested mappings stay unsupported.
+    """
+
+    if isinstance(value, Mapping) and value:
+        parts = []
+        for key, item in value.items():
+            if item is not None and not isinstance(item, (bool, int, float, str)):
+                return value
+            parts.append(f"{key}={_default_label(_category_tag(item) or '', item)}")
+        return ", ".join(parts)
+    return value
+
+
 def _is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 

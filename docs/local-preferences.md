@@ -2,7 +2,10 @@
 
 Issue #24 adds versioned local JSON preferences for theme, recent sources and the
 last source kind. They belong to this machine/user. Portable workspace layout,
-widget bindings and import/export are #49, not part of this file. The file has
+widget bindings and import/export are workspace files (#49), not part of this
+file; it only remembers the absolute path of the last opened or saved workspace
+file in the `last_workspace` field, so startup can reopen it (see
+`docs/workspace-docks.md`). The file has
 no raw samples, signal units/timestamps/quality, dock geometry or executable
 configuration. Choosing a theme or saving recent paths does not modify telemetry.
 

@@ -15,6 +15,15 @@ source controller and replay controller keep it current:
 | `cursor_ns` | the replay cursor time (session clock) | `cursor_changed` |
 | `selection` / `interval` | the one session-level `IntervalSelection` | `interval_changed` |
 | `bounds` | earliest to latest measurement time over all signals | `snapshot_changed` |
+| `derived` | the applied derived signal definitions (see `docs/derived-signals.md`) | `derived_changed` |
+| `source_health` | the latest `SourceMonitorReport` of the active (or last) source, or None | `source_health_changed` |
+| `log_path` | the file the session was read from, or None (simulators) | `snapshot_changed` |
+| `plot` / `plot_origin_ns` | the main time plot and its x origin (x is seconds since it) | `plot_changed` |
+| `plot_signal_id` | the signal the main time plot shows | `plot_changed` |
+| `following_live` | true while the replay bar follows live data | `cursor_changed` |
+
+The snapshot already contains the applied derived signals, so every tool can
+use them like recorded signals.
 
 Helpers:
 
@@ -22,6 +31,10 @@ Helpers:
   numeric signal. Unavailable readings are `None`, never zero. With an interval
   only the records inside the closed range are returned.
 - `reading_at(signal_id, time_ns)` returns the last reading at or before a time.
+- `request_seek(time_ns)` asks the replay clock to pause and move its cursor to
+  a session time; `cursor_ns` changes when it did.
+- `plot_changed` is emitted whenever the main plot is attached again, including
+  after it was cleared, so a tool can redraw its items on it.
 - `style_plot(plot_widget)` colors a tool's PyQtGraph plot for the current theme
   and again after every theme change, until the plot is deleted.
 
@@ -34,14 +47,21 @@ that is no longer loaded.
    needs. Coalesce refreshes with a short single-shot timer when the work is
    more than trivial, because snapshots arrive often while a source streams.
 2. Export `TOOL = AnalysisTool("key", "Menu label", WidgetClass)` from a module
-   in `lbr_dashboard/ui/tools/`.
-3. Add it to `TOOLS` in `lbr_dashboard/ui/tools/__init__.py`.
+   in `lbr_dashboard/ui/tools/`. Every such module is found automatically and
+   listed alphabetically by label in the Analysis menu; keys must be unique.
 
 The dock is created the first time the menu entry is used and reused after that.
 
+Open tool docks are saved in workspaces (Workspace menu, #49) by their key and
+position. A tool that has user settings can also provide
+`configuration() -> dict` and `restore_configuration(dict)`. The dictionary must
+be plain JSON (at most 16 KiB, no file paths, ports or credentials, no
+telemetry arrays); it is stored as the widget's `settings`. A settings object
+the format refuses is left out of the file with a status-bar note, and if
+`restore_configuration` raises, the tool opens with its defaults and the user
+is told. Tools without these methods are restored with their defaults.
+
 ## Tools
 
-| Menu entry | Module | Issue |
-| --- | --- | --- |
-| Statistics | `ui/tools/statistics.py` | #43 |
-| Histogram | `ui/tools/histogram.py` | #66 |
+Each tool module in `lbr_dashboard/ui/tools/` and its doc page describe what
+the tool shows; the Analysis menu lists them all.

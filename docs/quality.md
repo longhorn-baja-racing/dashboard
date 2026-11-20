@@ -71,9 +71,10 @@ failure fails that platform job and therefore the required aggregate check.
 The retained matrix is Python 3.13 on Windows, macOS and Linux, plus Python
 3.10-3.12 on Linux. Actions and uv remain pinned; setup-uv caches dependencies.
 Artifact upload retains JUnit, gate evidence, coverage and packages for seven
-days, including evidence from failed checks when available. Performance and
-hardware tests belong in separate explicitly opt-in work, outside this required
-workflow.
+days, including evidence from failed checks when available. The quick
+benchmark runs in the separate `Performance` workflow, which is not part of
+the required check (see [performance.md](performance.md)). Hardware tests
+belong in separate explicitly opt-in work, outside this required workflow.
 
 The stable **`CI required`** aggregate has `if: always()` and needs the entire
 platform matrix. It succeeds only when that matrix's result is `success`; failure,

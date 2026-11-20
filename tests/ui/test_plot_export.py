@@ -90,3 +90,35 @@ def test_invalid_width_and_render_failures(
     with pytest.raises(ExportError, match="encode"):
         export_plot_image(plot, path)
     assert not path.exists()
+
+
+def test_temporary_legend_appears_only_in_the_image(qtbot: QtBot, tmp_path: Path) -> None:
+    widget = pg.PlotWidget(title="Speed")
+    qtbot.addWidget(widget)
+    widget.resize(500, 300)
+    widget.show()
+    widget.plot([0, 1, 2], [1, 3, 2], pen="c", name="wheel_speed")
+    item = widget.getPlotItem()
+    assert item is not None
+
+    export_plot_image(widget, tmp_path / "plain.png", width=500)
+    export_plot_image(widget, tmp_path / "legend.png", width=500, legend=True)
+
+    plain, legend = QImage(str(tmp_path / "plain.png")), QImage(str(tmp_path / "legend.png"))
+    assert plain.size() == legend.size()
+    assert plain != legend  # the legend box and its label were drawn
+    assert item.legend is None
+    scene = widget.scene()
+    assert scene is not None
+    assert not [entry for entry in scene.items() if isinstance(entry, pg.LegendItem)]
+
+
+def test_existing_legend_is_kept_and_not_duplicated(plot: pg.PlotWidget, tmp_path: Path) -> None:
+    item = plot.getPlotItem()
+    assert item is not None
+    legend = item.legend
+    export_plot_image(plot, tmp_path / "plot.png", legend=True)
+    scene = plot.scene()
+    assert scene is not None
+    legends = [entry for entry in scene.items() if isinstance(entry, pg.LegendItem)]
+    assert legends == [legend]

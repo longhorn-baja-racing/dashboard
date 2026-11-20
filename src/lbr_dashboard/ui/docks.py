@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Literal
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import pyqtgraph as pg
 from PySide6.QtCore import QMimeData, Qt
@@ -12,9 +13,11 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
+    QFrame,
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -29,6 +32,29 @@ from .value_widget import SignalValueWidget
 
 DockKind = Literal["plot", "value"]
 
+#: Smallest plot area; pyqtgraph can fail painting into a nearly empty widget.
+MIN_PLOT_SIZE = (200, 150)
+
+
+@dataclass
+class PendingTrace:
+    """A saved binding whose signal is not in the current session (yet).
+
+    It keeps the saved style so the trace comes back unchanged once a session
+    provides the signal ID, or once the user binds a replacement.
+    """
+
+    signal: str
+    axis: Axis | None = None
+    color: str | None = None
+    visible: bool = True
+    problem: str | None = None
+
+    def message(self) -> str:
+        if self.problem:
+            return f"Cannot restore {self.signal}: {self.problem}"
+        return f"Missing signal {self.signal} - bind an available signal."
+
 
 class SignalDock(QDockWidget):
     def __init__(self, key: str, label: str, kind: DockKind, workspace: WorkspaceDocks) -> None:
@@ -37,6 +63,11 @@ class SignalDock(QDockWidget):
         self.kind = kind
         self.workspace = workspace
         self.binding: tuple[str, str] | None = None
+        self.pending: list[PendingTrace] = []
+        #: Saved workspace details this dock does not use itself (axis labels,
+        #: extra value bindings), kept so saving does not drop them.
+        self.preserved: dict[str, Any] = {}
+        self._resolving = False
         self.origin_ns: int | None = None
         self.cursor: pg.InfiniteLine | None = None
         self.setAcceptDrops(True)
@@ -69,6 +100,7 @@ class SignalDock(QDockWidget):
             layout.addWidget(self.selected_reading)
         if self.plot is not None:
             self.plot.setLabel("bottom", "Time since first shown reading", units="s")
+            self.plot.setMinimumSize(*MIN_PLOT_SIZE)
             layout.addWidget(self.plot)
             self.trace_list = QComboBox()
             self.trace_list.setAccessibleName("Plot traces")
@@ -79,6 +111,8 @@ class SignalDock(QDockWidget):
             add.clicked.connect(self.add_selected)
             assign = QPushButton("Assign trace axis")
             assign.clicked.connect(self.assign_trace_axis)
+            replace_trace = QPushButton("Replace trace with selected signal")
+            replace_trace.clicked.connect(self.replace_trace)
             remove_trace = QPushButton("Remove selected trace")
             remove_trace.clicked.connect(self.remove_trace)
             fit = QPushButton("Fit traces")
@@ -88,11 +122,18 @@ class SignalDock(QDockWidget):
             layout.addWidget(self.axis_choice)
             layout.addWidget(add)
             layout.addWidget(assign)
+            layout.addWidget(replace_trace)
             layout.addWidget(remove_trace)
             layout.addWidget(fit)
         layout.addWidget(bind)
         layout.addWidget(remove)
-        self.setWidget(body)
+        # Scroll rather than demand space: the controls stack tall, and a large
+        # minimum height would make saved split sizes impossible on small screens.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        self.setWidget(scroll)
 
     def bind_selected(self) -> None:
         descriptor = self.workspace.descriptor(self.workspace.selected_id())
@@ -113,11 +154,14 @@ class SignalDock(QDockWidget):
             return False
         if self.multi_plot is not None:
             # Validate a replacement before discarding the current plot.
-            previous = self.multi_plot.configuration()
+            previous, pending = self.multi_plot.configuration(), self.pending
+            self.pending = []
             self.multi_plot.clear()
             if not self.add_trace(signal_id, source_id):
                 self.multi_plot.restore_configuration(previous)
+                self.pending = pending
                 return False
+        self.pending = []
         self.binding = (signal_id, source_id)
         self.feedback.setText(f"Bound to {descriptor.display_name} ({signal_id}).")
         self.render()
@@ -160,18 +204,68 @@ class SignalDock(QDockWidget):
         self.trace_list.clear()
         for key in self.multi_plot.bindings:
             self.trace_list.addItem(self.multi_plot.label(key), key)
+        for trace in self.pending:
+            self.trace_list.addItem(f"Missing: {trace.signal}", trace.signal)
         index = self.trace_list.findData(selected)
         if index >= 0:
             self.trace_list.setCurrentIndex(index)
+
+    def _pending(self, signal_id: object) -> PendingTrace | None:
+        return next((trace for trace in self.pending if trace.signal == signal_id), None)
 
     def remove_trace(self) -> None:
         assert self.multi_plot is not None
         signal_id = self.trace_list.currentData()
         if signal_id is None:
             return
-        self.multi_plot.remove(signal_id)
+        pending = self._pending(signal_id)
+        if pending is not None:
+            self.pending.remove(pending)
+        else:
+            self.multi_plot.remove(signal_id)
         first = next(iter(self.multi_plot.bindings.values()), None)
         self.binding = (first.signal_id, first.source_id) if first is not None else None
+        self.render()
+
+    def replace_trace(self) -> None:
+        """Rebind the chosen trace, missing or not, to the browser selection.
+
+        The trace keeps its color, axis and visibility. If the new signal does
+        not fit, nothing changes.
+        """
+
+        assert self.multi_plot is not None
+        target = self.trace_list.currentData()
+        descriptor = self.workspace.descriptor(self.workspace.selected_id())
+        if target is None or descriptor is None:
+            self.feedback.setText("Choose a trace and select an available signal in the browser.")
+            return
+        pending = self._pending(target)
+        if pending is not None:
+            axis, color, visible = pending.axis, pending.color, pending.visible
+        else:
+            binding = self.multi_plot.bindings[target]
+            axis, color = binding.axis, binding.color
+            visible = self.multi_plot.curves[target].isVisible()
+        previous = self.multi_plot.configuration()
+        if pending is None:
+            self.multi_plot.remove(target)
+        self.multi_plot.snapshot = self.workspace.snapshot
+        try:
+            try:
+                self.multi_plot.add(descriptor, axis, color=color, visible=visible)
+            except ValueError:
+                if axis is None:
+                    raise
+                self.multi_plot.add(descriptor, None, color=color, visible=visible)
+        except ValueError as error:
+            self.multi_plot.restore_configuration(previous)
+            self.feedback.setText(str(error))
+            return
+        if pending is not None:
+            self.pending.remove(pending)
+        first = next(iter(self.multi_plot.bindings.values()))
+        self.binding = (first.signal_id, first.source_id)
         self.render()
 
     def assign_trace_axis(self) -> None:
@@ -179,6 +273,11 @@ class SignalDock(QDockWidget):
         signal_id, axis = self.trace_list.currentData(), self._chosen_axis()
         if signal_id is None or axis is None:
             self.feedback.setText("Choose a trace and Left axis or Right axis.")
+            return
+        pending = self._pending(signal_id)
+        if pending is not None:
+            pending.axis = axis
+            self.render()
             return
         try:
             self.multi_plot.assign_axis(signal_id, axis)
@@ -218,13 +317,50 @@ class SignalDock(QDockWidget):
         else:
             event.ignore()
 
+    def resolve_pending(self) -> None:
+        """Bind saved signals that the current session now provides."""
+
+        if not self.pending or self._resolving:
+            return
+        self._resolving = True
+        before = len(self.pending)
+        try:
+            for trace in list(self.pending):
+                descriptor = self.workspace.descriptor(trace.signal)
+                if descriptor is None:
+                    trace.problem = None
+                    continue
+                if self.multi_plot is not None:
+                    self.multi_plot.snapshot = self.workspace.snapshot
+                    try:
+                        self.multi_plot.add(
+                            descriptor, trace.axis, color=trace.color, visible=trace.visible
+                        )
+                    except ValueError as error:
+                        trace.problem = str(error)
+                        continue
+                    self.pending.remove(trace)
+                    if self.binding is None:
+                        self.binding = (descriptor.identifier, descriptor.source_id)
+                else:
+                    self.pending.clear()
+                    self.binding = (descriptor.identifier, descriptor.source_id)
+                    break
+        finally:
+            self._resolving = False
+        if len(self.pending) < before:
+            for callback in self.workspace.resolved_callbacks:
+                callback(self)
+
     def render(self) -> None:
         self.origin_ns = None
+        self.resolve_pending()
+        missing = [trace.message() for trace in self.pending]
         if self.multi_plot is not None:
             problems = self.multi_plot.update_snapshot(self.workspace.snapshot)
             self._refresh_trace_list()
-            if problems:
-                self.feedback.setText("\n".join(problems))
+            if problems or missing:
+                self.feedback.setText("\n".join(missing + problems))
             elif self.multi_plot.bindings:
                 self.feedback.setText(
                     "Drop a signal or use Add selected signal to add another trace."
@@ -236,7 +372,13 @@ class SignalDock(QDockWidget):
         if self.binding is None:
             self.readout.clear()
             if self.value_widget is not None:
-                self.value_widget.set_signal_id("")
+                if missing:
+                    self.presenting_replay_value = False
+                    self.feedback.setText(missing[0])
+                    self.value_reference.setText("Latest reading")
+                    self.value_widget.set_signal_id(self.pending[0].signal)
+                else:
+                    self.value_widget.set_signal_id("")
             return
         signal_id, source_id = self.binding
         descriptor = self.workspace.descriptor(signal_id)
@@ -292,6 +434,8 @@ class WorkspaceDocks:
         self._descriptors: dict[str, SignalDescriptor] = {}
         self._next_id = 0
         self._plot_colors = ("#202020", "#eeeeee")
+        #: Called with a dock after saved signals of it were found in a session.
+        self.resolved_callbacks: list[Callable[[SignalDock], None]] = []
         menu_bar = window.menuBar()
         assert menu_bar is not None
         self.menu = menu_bar.addMenu("Workspace")
@@ -302,19 +446,40 @@ class WorkspaceDocks:
     def descriptor(self, signal_id: str | None) -> SignalDescriptor | None:
         return self._descriptors.get(signal_id) if signal_id is not None else None
 
-    def add(self, kind: DockKind) -> SignalDock:
-        self._next_id += 1
-        key = f"workspace.{kind}.{self._next_id}"
-        dock = SignalDock(key, f"{kind.title()} {self._next_id}", kind, self)
+    def add(
+        self,
+        kind: DockKind,
+        key: str | None = None,
+        title: str | None = None,
+        *,
+        area: Qt.DockWidgetArea = Qt.DockWidgetArea.RightDockWidgetArea,
+    ) -> SignalDock:
+        """Create a dock; ``key`` and ``title`` restore a saved widget identity."""
+
+        if key is None or key in self.docks:
+            self._next_id += 1
+            while f"workspace.{kind}.{self._next_id}" in self.docks:
+                self._next_id += 1
+            number = self._next_id
+            key = f"workspace.{kind}.{number}"
+            title = title or f"{kind.title()} {number}"
+        dock = SignalDock(key, title or f"{kind.title()} {len(self.docks) + 1}", kind, self)
         if dock.plot is not None:
             apply_plot_colors(dock.plot, *self._plot_colors)
         if dock.multi_plot is not None:
             dock.multi_plot.set_background(self._plot_colors[0])
         self.docks[key] = dock
-        self.window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.window.addDockWidget(area, dock)
         self.menu.addAction(dock.toggleViewAction())
         dock.show()
         return dock
+
+    def clear(self) -> None:
+        """Remove every workspace dock, e.g. before another workspace is opened."""
+
+        for key in list(self.docks):
+            self.remove(key)
+        self._next_id = 0
 
     def set_plot_colors(self, background: str, text: str) -> None:
         self._plot_colors = (background, text)

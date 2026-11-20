@@ -19,6 +19,7 @@ NO_PORTS = (
     "No serial ports found. Connect the Central's USB cable (install the USB-UART "
     "driver, e.g. CP210x or CH340, if Windows shows no COM port), then click Refresh ports."
 )
+NO_HEALTH = "Source health: unknown (no source connected yet)"
 
 
 class SourcePicker(QGroupBox):
@@ -34,6 +35,7 @@ class SourcePicker(QGroupBox):
         super().__init__("Telemetry source")
         self.choices = QComboBox()
         self.choices.addItem("CSV replay - timestamp_ms preset", "csv")
+        self.choices.addItem("CSV with column mapping...", "csv_mapped")
         self.choices.addItem("Simulator - process (finite)", "process")
         self.choices.addItem("Simulator - motion (finite)", "motion")
         self.choices.addItem("Simulator - process (live)", "live")
@@ -42,11 +44,15 @@ class SourcePicker(QGroupBox):
         self.retry_button = QPushButton("Retry / Restart")
         self.status = QLabel("Idle - choose a CSV or fictional simulator. No hardware connected.")
         self.status.setWordWrap(True)
+        self.health = QLabel(NO_HEALTH)
+        self.health.setWordWrap(True)
+        self.health.setProperty("healthStatus", "unknown")
+        self.health.setToolTip("Analysis > Source health shows every counter and threshold.")
         self.capabilities = QLabel("Capabilities will appear when a source is selected.")
         self.capabilities.setWordWrap(True)
         self.controls = QLabel()
         self.controls.setWordWrap(True)
-        for label in (self.status, self.capabilities, self.controls):
+        for label in (self.status, self.health, self.capabilities, self.controls):
             label.setTextFormat(Qt.TextFormat.PlainText)
         # USB serial: a port chooser shown while that source is selected.
         self.port_row = QWidget()
@@ -90,7 +96,11 @@ class SourcePicker(QGroupBox):
         layout.addLayout(row)
         layout.addWidget(self.port_row)
         layout.addWidget(self.recording)
-        layout.addWidget(self.status)
+        # The health line sits beside the status so the picker does not grow taller.
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status, 1)
+        status_row.addWidget(self.health, 1)
+        layout.addLayout(status_row)
         layout.addWidget(self.capabilities)
         layout.addWidget(self.controls)
         operations = QHBoxLayout()
@@ -204,6 +214,17 @@ class SourcePicker(QGroupBox):
         self.refresh_ports_button.setEnabled(not busy)
         self.disconnect_button.setEnabled(connected)
         self.retry_button.setEnabled(retry and not busy)
+
+    def show_health(self, text: str | None, status: str = "unknown") -> None:
+        """Show the one-line health summary; ``None`` means no source yet."""
+
+        self.health.setText(NO_HEALTH if text is None else f"Source health: {text}")
+        if self.health.property("healthStatus") != status:
+            self.health.setProperty("healthStatus", status)
+            style = self.health.style()
+            if style is not None:
+                style.unpolish(self.health)
+                style.polish(self.health)
 
     def show_capabilities(self, caps: SourceCapabilities | None) -> None:
         for button, supported, name in (

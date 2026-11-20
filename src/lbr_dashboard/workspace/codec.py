@@ -18,6 +18,7 @@ from .model import (
     AXIS_SIDES,
     AXIS_WIDGET_TYPES,
     CURRENT_VERSION,
+    DOCK_AREAS,
     SPLIT_ORIENTATIONS,
     WIDGET_TYPES,
     WORKSPACE_FORMAT,
@@ -47,12 +48,24 @@ MAX_TEXT_LENGTH = 200
 MAX_DESCRIPTION_LENGTH = 2000
 MAX_EXTENSIONS_BYTES = 16_384
 MAX_EXTENSION_LIST_LENGTH = 64
+MAX_SETTINGS_BYTES = 16_384
+
+Migration = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _upgrade_from_v1(document: dict[str, Any]) -> dict[str, Any]:
+    """Version 2 only adds optional fields and the ``analysis_tool`` type.
+
+    Every valid version 1 document is therefore a valid version 2 document
+    once its version number changes, which ``migrate_document`` does.
+    """
+
+    return document
+
 
 #: Upgrade functions keyed by the version they upgrade *from*. Each receives a
-#: private copy of version N data and returns version N + 1 data. Version 1 is
-#: the first published format, so there is nothing to migrate yet.
-Migration = Callable[[dict[str, Any]], dict[str, Any]]
-MIGRATIONS: Mapping[int, Migration] = {}
+#: private copy of version N data and returns version N + 1 data.
+MIGRATIONS: Mapping[int, Migration] = {1: _upgrade_from_v1}
 
 _INSTANCE_ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _SIGNAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
@@ -73,8 +86,10 @@ _LOCAL_TOKENS = frozenset(
 _KEY_TOKEN = re.compile(r"[a-z0-9]+")
 
 _TOP_FIELDS = frozenset({"format", "version", "name", "description", "widgets", "layout"})
-_WIDGET_FIELDS = frozenset({"id", "type", "title", "bindings", "axes"})
-_BINDING_FIELDS = frozenset({"signal", "label", "color", "axis"})
+_WIDGET_FIELDS = frozenset(
+    {"id", "type", "title", "bindings", "axes", "area", "hidden", "floating", "tool", "settings"}
+)
+_BINDING_FIELDS = frozenset({"signal", "label", "color", "axis", "hidden"})
 _AXIS_FIELDS = frozenset({"id", "side", "label", "unit", "range"})
 _LAYOUT_FIELDS = {
     "widget": frozenset({"kind", "widget"}),
@@ -234,6 +249,28 @@ class _Validator:
                 f"'{_show(widget_type)}' is not one of {sorted(WIDGET_TYPES)}",
             )
         title = self.optional_text(data, "title", location)
+        area = data.get("area")
+        if "area" in data and not _member(area, DOCK_AREAS):
+            self.issue(f"{location}.area", "invalid_value", f"must be one of {sorted(DOCK_AREAS)}")
+        hidden = self.flag(data, "hidden", location)
+        floating = self.flag(data, "floating", location)
+        tool = None
+        settings = None
+        if widget_type == "analysis_tool":
+            if "tool" not in data:
+                self.issue(f"{location}.tool", "required", "is required for analysis tools")
+            else:
+                tool = self.identifier(data["tool"], f"{location}.tool", _INSTANCE_ID)
+            if "settings" in data:
+                settings = self.json_object(
+                    data["settings"], f"{location}.settings", MAX_SETTINGS_BYTES
+                )
+        else:
+            for key in ("tool", "settings"):
+                if key in data:
+                    self.issue(
+                        f"{location}.{key}", "unknown_field", "only analysis tools have this field"
+                    )
 
         axes: list[AxisPreference] = []
         if "axes" in data:
@@ -266,7 +303,25 @@ class _Validator:
 
         if len(self.issues) != before or widget_id is None or not isinstance(widget_type, str):
             return None
-        return WidgetConfig(widget_id, widget_type, title, tuple(bindings), tuple(axes))
+        return WidgetConfig(
+            widget_id,
+            widget_type,
+            title,
+            tuple(bindings),
+            tuple(axes),
+            area=area if isinstance(area, str) else None,
+            hidden=hidden,
+            floating=floating,
+            tool=tool,
+            settings=settings,
+        )
+
+    def flag(self, data: dict[str, Any], key: str, location: str) -> bool:
+        value = data.get(key, False)
+        if type(value) is not bool:
+            self.issue(f"{location}.{key}", "type", "must be true or false")
+            return False
+        return value
 
     def binding(
         self, value: object, location: str, widget_type: object, axis_ids: set[str]
@@ -290,9 +345,12 @@ class _Validator:
                     "unknown_reference",
                     f"no axis '{_show(axis)}' in this widget",
                 )
+        hidden = self.flag(data, "hidden", location)
+        if "hidden" in data and not _member(widget_type, AXIS_WIDGET_TYPES):
+            self.issue(f"{location}.hidden", "unknown_field", "only plot traces can be hidden")
         if len(self.issues) != before or signal is None:
             return None
-        return SignalBinding(signal, label, color, axis)
+        return SignalBinding(signal, label, color, axis, hidden)
 
     def axis(self, value: object, location: str) -> AxisPreference | None:
         data = self.fields(value, location, _AXIS_FIELDS, ("id",))
@@ -401,11 +459,19 @@ class _Validator:
                     "invalid_value",
                     "extension keys must be namespaced, for example 'team.notes'",
                 )
+        self.json_object(value, location, MAX_EXTENSIONS_BYTES)
+        return value if len(self.issues) == before else None
+
+    def json_object(self, value: object, location: str, limit: int) -> dict[str, Any] | None:
+        """Check small free-form JSON: no credentials, local details or telemetry."""
+
+        if not isinstance(value, dict):
+            self.issue(location, "type", "must be an object")
+            return None
+        before = len(self.issues)
         encoded = json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
-        if len(encoded) > MAX_EXTENSIONS_BYTES:
-            self.issue(
-                location, "too_large", f"must encode to at most {MAX_EXTENSIONS_BYTES} bytes"
-            )
+        if len(encoded) > limit:
+            self.issue(location, "too_large", f"must encode to at most {limit} bytes")
         stack: list[tuple[object, str]] = [(value, location)]
         while stack:
             current, where = stack.pop()
@@ -571,7 +637,21 @@ def workspace_to_dict(workspace: Workspace) -> dict[str, Any]:
 
     widgets = []
     for widget in workspace.widgets:
-        item = _drop_none({"id": widget.id, "type": widget.type, "title": widget.title})
+        item = _drop_none(
+            {
+                "id": widget.id,
+                "type": widget.type,
+                "title": widget.title,
+                "tool": widget.tool,
+                "area": widget.area,
+            }
+        )
+        if widget.hidden:
+            item["hidden"] = True
+        if widget.floating:
+            item["floating"] = True
+        if widget.settings is not None:
+            item["settings"] = thaw_json(widget.settings)
         if widget.axes:
             item["axes"] = [
                 _drop_none(
@@ -592,6 +672,7 @@ def workspace_to_dict(workspace: Workspace) -> dict[str, Any]:
                     "label": binding.label,
                     "color": binding.color,
                     "axis": binding.axis,
+                    "hidden": True if binding.hidden else None,
                 }
             )
             for binding in widget.bindings

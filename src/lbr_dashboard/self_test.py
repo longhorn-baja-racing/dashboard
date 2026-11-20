@@ -105,11 +105,18 @@ def run(sample: Path, root: Path | None = None) -> SelfTestResult:
             raise ValueError("window could not be rendered")
         return f"rendered {image.width()}x{image.height()}"
 
+    def analysis_tools() -> str:
+        tools = window.analysis_docks.tools
+        if "statistics" not in tools:
+            raise ValueError(f"analysis tools found: {sorted(tools) or 'none'}")
+        return f"{len(tools)} analysis tools"
+
     try:
         if _check(result, "start the main window", start) and _check(
             result, "open the sample CSV", open_sample
         ):
-            _check(result, "plot a column", plot)
+            if _check(result, "plot a column", plot):
+                _check(result, "list the analysis tools", analysis_tools)
     finally:
         window.close()
     return result

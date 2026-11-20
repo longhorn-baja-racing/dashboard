@@ -4,8 +4,9 @@ Comparing two runs (for example lap 3 of one practice and lap 7 of another)
 needs both runs on one time axis. `lbr_dashboard.core.session_alignment`
 (standard library only) defines that axis with one manual offset, reports
 whether the runs overlap and whether the matched signals are comparable, and
-returns each run's samples for a comparison-time window. Plotting the aligned
-runs is separate work (#64).
+returns each run's samples for a comparison-time window. In the app,
+**Analysis > Compare sessions** uses it to overlay a second run on the main
+session (see [Compare sessions in the app](#compare-sessions-in-the-app)).
 
 ## Inputs
 
@@ -122,16 +123,86 @@ where an integer is required) raises `ValueError` naming the field. The
 document stores identities, not data: restoring it with the same sessions
 reproduces the same mapping and windows.
 
+## Compare sessions in the app
+
+**Analysis > Compare sessions** (`lbr_dashboard/ui/tools/session_overlay.py`)
+opens a dock that overlays a second run on the main session. The main session
+loaded with the source picker is the reference; it is never replaced or
+modified.
+
+1. Open a main session with the source picker (for example
+   `sample_data/timestamped_demo.csv`).
+2. In the dock, choose **Comparison file...** (a `timestamp_ms` CSV) or a
+   finite fictional simulator, then **Load comparison**. The comparison run is
+   read completely on a background worker into its own snapshot. A file that
+   cannot be read is reported in the dock; the main session stays as it was.
+3. Signals with the same id in both runs are matched automatically. The
+   **Matched signals** tab lists every numeric main-run signal with a chooser
+   for its comparison signal (or `(not compared)`), and a **Plot** check box
+   that hides or shows that pair.
+4. Set **Offset** in milliseconds (added to comparison-run times, positive
+   moves the comparison run later), or place the replay cursor and press
+   **Align at cursor** to start the comparison run's first matched reading at
+   the cursor.
+
+The plot uses the main run's time axis (seconds since its first reading).
+Each matched pair has one color: the main run is solid with round markers,
+the comparison run is dashed with square markers. Legend entries read
+`Main run (main session): chamber_temperature [unit unspecified] - csv.column.1`
+and `Comparison run (<file name>): ...`, so the run, signal, unit and id are
+always visible. **Show: Main run / Comparison run** hide a whole run. The
+shaded band is the overlap; outside it only one run has data.
+
+Above the plot the dock lists missing signals, unit and frame mismatches and
+the overlap, or why there is none, for example `No overlap: the comparison
+run starts 4.200 s after the main run ends. ... Decrease the offset by at
+least 4200 ms.`
+
+The **At cursor** tab follows the replay cursor. For each pair it shows the
+last main-run reading at or before the cursor, the last comparison-run reading
+at or before the mapped comparison time, and their difference (comparison
+minus main). A difference is only shown when both readings exist and the
+units are the same; otherwise it reads `--` or `-- (units differ)`. Missing
+readings stay missing.
+
+`SessionOverlayTool.configuration(relative_to=None)` returns the comparison as
+plain data and `restore_configuration(config, base_dir=None)` reloads it:
+
+```json
+{
+  "comparison": {"path": "runs/lap7.csv"},
+  "alignment": {"format": "lbr-session-alignment", "version": 1, "...": "..."},
+  "show_main": true,
+  "show_comparison": true,
+  "hidden": []
+}
+```
+
+`comparison` is `{"path": ...}` (stored as chosen, or relative to
+`relative_to` when the file lies inside it; relative paths are resolved
+against `base_dir` on restore), `{"preset": "process"}` for a simulator run,
+or `null`. `alignment` is the `SessionAlignment.to_dict()` document with the
+matched ids and the offset; it is applied once the comparison run has been
+read. An invalid document raises `ValueError` and changes nothing.
+
+The UI never imports a file reader: the source controller hands the dock a
+`ComparisonSources` with the CSV reader and the finite simulators.
+
 ## Not included yet
 
 - Finding sessions by identity and the integrated clock (#21, #22).
 - Anchors, drift correction and more than two runs.
-- Overlay plots, legends and cursor deltas (#64).
+- Saving the comparison in a workspace file.
 
 ## Running the tests
 
 On Windows (PowerShell) or any other platform, from the repository root:
 
 ```
-uv run --locked --extra dev pytest tests/core/test_session_alignment.py
+uv run --locked --extra dev pytest tests/core/test_session_alignment.py tests/ui/test_session_overlay.py
 ```
+
+To try it by hand, start the app with `uv run --locked lbr-dashboard`, open
+`sample_data/timestamped_demo.csv` with the source picker, then open
+**Analysis > Compare sessions** and load a copy of the same file whose
+`timestamp_ms` values are shifted.

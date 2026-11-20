@@ -81,8 +81,13 @@ class XYPlotWidget(QWidget):
         layout.addWidget(self.plot_widget)
         layout.addWidget(self.note_label)
 
-    def show_pairs(self, series: PairedSeries, x_label: str, y_label: str) -> None:
-        """Plot ``series`` with axis names and units; clears any highlight."""
+    def show_pairs(
+        self, series: PairedSeries, x_label: str, y_label: str, *, fit: bool = True
+    ) -> None:
+        """Plot ``series`` with axis names and units; clears any highlight.
+
+        ``fit=False`` keeps the current pan and zoom, e.g. while new data streams in.
+        """
 
         limited, _dropped = limit_points(series, self._max_points)
         self._series = series
@@ -90,8 +95,17 @@ class XYPlotWidget(QWidget):
         self.marker.setVisible(False)
         self.plot_widget.setLabel("bottom", axis_label(x_label, series.x_unit))
         self.plot_widget.setLabel("left", axis_label(y_label, series.y_unit))
-        self.plot_widget.enableAutoRange()
+        if fit:
+            self.plot_widget.enableAutoRange()
         self.note_label.setText(pairing_note(series, len(limited)))
+
+    def clear(self, message: str = "No pairs to plot.") -> None:
+        """Remove the scatter and highlight and show ``message`` instead of a note."""
+
+        self._series = None
+        self.scatter.setData(x=[], y=[])
+        self.marker.setVisible(False)
+        self.note_label.setText(message)
 
     def highlight_time(self, t_ns: int | None) -> int | None:
         """Mark the pair whose driver time is nearest ``t_ns``; return that time.

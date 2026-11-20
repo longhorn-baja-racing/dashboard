@@ -45,5 +45,6 @@ sample units produce explicit feedback. Raw samples remain in the shared session
 `MultiTracePlot.configuration()` returns JSON-compatible signal/source identities,
 units, axis assignments, stable colors and visibility. `restore_configuration()` validates
 the complete list before activation and retains unresolved bindings. This is the plot
-configuration boundary for #49. Workspace file import/export and restart persistence
-remain in #49.
+configuration boundary for #49. Workspaces (#49) save the same trace identities by
+signal ID, with colors, axis sides, units and hidden traces, and restore them on open
+or restart; see `docs/workspace-docks.md` and `tests/ui/test_workspace_manager.py`.

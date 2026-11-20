@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import zlib
+from collections.abc import Sequence
 
 import pyqtgraph as pg
 from pyqtgraph.graphicsItems.PlotItem import PlotItem
@@ -10,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from ..core.state_timeline import SegmentKind, StateSegment, StateTimeline
+from ..core.state_timeline import SegmentKind, StateEvent, StateSegment, StateTimeline
 
 EMPTY_TITLE = "No state timeline"
 MAX_LABELS = 200
@@ -176,39 +177,82 @@ class StateTimelineWidget(QWidget):
             self.plot_item.addItem(self.time_cursor, ignoreBounds=True)
 
     def _draw_segments(self, timeline: StateTimeline) -> None:
-        segments = timeline.segments
-        if not segments:
+        self.bars = segment_bars(timeline.segments, self.origin_ns, BAR_Y0, BAR_HEIGHT)
+        if self.bars is None:
             return
-        self.bars = pg.BarGraphItem(
-            x0=[ns_to_seconds(item.start_ns, self.origin_ns) for item in segments],
-            x1=[ns_to_seconds(item.end_ns, self.origin_ns) for item in segments],
-            y0=BAR_Y0,
-            height=BAR_HEIGHT,
-            brushes=[segment_brush(item) for item in segments],
-            pen=pg.mkPen("#202020"),
-        )
         self.plot_widget.addItem(self.bars)
-        widest = sorted(segments, key=lambda item: item.duration_ns, reverse=True)[:MAX_LABELS]
-        for segment in sorted(widest, key=lambda item: item.start_ns):
-            text = pg.TextItem(segment.label, color="#ffffff", anchor=(0, 0.5))
-            text.setPos(ns_to_seconds(segment.start_ns, self.origin_ns), BAR_Y0 + BAR_HEIGHT / 2)
+        self.text_items = segment_labels(
+            timeline.segments, self.origin_ns, BAR_Y0 + BAR_HEIGHT / 2, MAX_LABELS
+        )
+        for text in self.text_items:
             self.plot_item.addItem(text, ignoreBounds=True)
-            self.text_items.append(text)
 
     def _draw_events(self, timeline: StateTimeline) -> None:
-        events = timeline.events
-        if not events:
-            return
-        self.markers = pg.ScatterPlotItem(
-            x=[ns_to_seconds(item.time_ns, self.origin_ns) for item in events],
-            y=[EVENT_Y] * len(events),
-            symbol=["|" if item.count == 1 else "d" for item in events],
-            size=[14 if item.transition else 7 for item in events],
-            pen=pg.mkPen("#ffffff"),
-            brush=pg.mkBrush("#ffffff"),
-            data=[item.index for item in events],
-        )
-        self.plot_widget.addItem(self.markers)
+        self.markers = event_markers(timeline.events, self.origin_ns, EVENT_Y)
+        if self.markers is not None:
+            self.plot_widget.addItem(self.markers)
+
+
+def segment_bars(
+    segments: Sequence[StateSegment], origin_ns: int, y0: float, height: float
+) -> pg.BarGraphItem | None:
+    """One bar per segment from ``y0`` to ``y0 + height``, or None without segments."""
+
+    if not segments:
+        return None
+    return pg.BarGraphItem(
+        x0=[ns_to_seconds(item.start_ns, origin_ns) for item in segments],
+        x1=[ns_to_seconds(item.end_ns, origin_ns) for item in segments],
+        y0=y0,
+        height=height,
+        brushes=[segment_brush(item) for item in segments],
+        pen=pg.mkPen("#202020"),
+    )
+
+
+def segment_labels(
+    segments: Sequence[StateSegment],
+    origin_ns: int,
+    y: float,
+    max_labels: int,
+    color: str = "#ffffff",
+) -> list[pg.TextItem]:
+    """Text labels for the ``max_labels`` widest segments, in time order."""
+
+    widest = sorted(segments, key=lambda item: item.duration_ns, reverse=True)[:max_labels]
+    labels = []
+    for segment in sorted(widest, key=lambda item: item.start_ns):
+        text = pg.TextItem(segment.label, color=color, anchor=(0, 0.5))
+        text.setPos(ns_to_seconds(segment.start_ns, origin_ns), y)
+        labels.append(text)
+    return labels
+
+
+def event_markers(
+    events: Sequence[StateEvent],
+    origin_ns: int,
+    y: float,
+    color: str = "#ffffff",
+    *,
+    uniform: bool = False,
+) -> pg.ScatterPlotItem | None:
+    """One marker per event at its exact time, or None without events.
+
+    Transitions are taller unless ``uniform``; combined events are diamonds.
+    Each spot's data is the input index of its (first) sample.
+    """
+
+    if not events:
+        return None
+    return pg.ScatterPlotItem(
+        x=[ns_to_seconds(item.time_ns, origin_ns) for item in events],
+        y=[y] * len(events),
+        symbol=["|" if item.count == 1 else "d" for item in events],
+        size=[14 if item.transition or uniform else 7 for item in events],
+        pen=pg.mkPen(color),
+        brush=pg.mkBrush(color),
+        data=[item.index for item in events],
+    )
 
 
 def _default_origin(timeline: StateTimeline) -> int:

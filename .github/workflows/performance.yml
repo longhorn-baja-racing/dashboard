@@ -1,0 +1,53 @@
+name: Performance
+
+# Quick benchmark with generous margins (docs/performance.md). It catches gross
+# regressions only; reference numbers come from a manual run on the reference
+# Windows laptop. This workflow is not part of the required `CI required` check.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  benchmark:
+    name: Quick benchmark (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONFAULTHANDLER: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libegl1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.23"
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Run the quick benchmark and fail only on gross regressions
+        run: uv run --locked python scripts/benchmark.py --ci
+      - name: Upload benchmark results
+        if: ${{ !cancelled() && hashFiles('build/bench/results-*.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-${{ matrix.os }}
+          path: build/bench/results-*.json
+          retention-days: 30
