@@ -44,3 +44,4 @@ The dock is created the first time the menu entry is used and reused after that.
 | Menu entry | Module | Issue |
 | --- | --- | --- |
 | Statistics | `ui/tools/statistics.py` | #43 |
+| Spectrum | `ui/tools/spectrum.py` | #68 |
