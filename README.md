@@ -110,13 +110,17 @@ choice.
 
 ## Releases
 
-Planned releases target Windows first: a portable ZIP and an installer
+Releases target Windows first: a per-user installer and a portable ZIP
 ([#52](https://github.com/longhorn-baja-racing/dashboard/issues/52),
 [#53](https://github.com/longhorn-baja-racing/dashboard/issues/53),
 [#56](https://github.com/longhorn-baja-racing/dashboard/issues/56)). No release
-has been published yet, but every pull request builds and smoke-tests a
-portable Windows ZIP; see [portable build](docs/portable-build.md). macOS and
-Linux distributions are deferred until the Windows release works; CI keeps running on all three platforms for development.
+has been published yet. Every pull request builds and smoke-tests the portable
+ZIP and the installer (see [portable build](docs/portable-build.md) and
+[Windows installer](docs/windows-installer.md)), and pushing a `vX.Y.Z` tag
+publishes both with checksums once every check passes (see
+[releasing](docs/releasing.md) and the [changelog](CHANGELOG.md)). Builds are
+not code signed yet. macOS and Linux distributions are deferred until the
+Windows release works; CI keeps running on all three platforms for development.
 
 The dashboard is released under the [MIT License](LICENSE). Packaged builds
 also contain third-party components under their own licenses; what each one
