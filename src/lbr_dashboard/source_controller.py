@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from time import monotonic
+from time import monotonic, monotonic_ns
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QAbstractItemView, QFileDialog
@@ -98,6 +98,9 @@ class SourceController(QObject):
         self._derived_timer.setSingleShot(True)
         self._derived_timer.setInterval(int(DERIVED_INTERVAL_S * 1000))
         self._derived_timer.timeout.connect(self._refresh_view)
+        self.health_clock: Callable[[], int] = monotonic_ns
+        self.health: SourceHealthMonitor | None = None
+        self.mapping_dialog: CsvMappingDialog | None = None
         self.replay = ReplayController(window)
         for family in ("process", "motion", "live"):
 
