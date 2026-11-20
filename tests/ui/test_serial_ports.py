@@ -20,51 +20,48 @@ CHECKS = run_path(str(TESTS / "source_contract" / "checks.py"))
 GOLDEN_STREAM: bytes = FAKE["GOLDEN_STREAM"]
 until = CHECKS["until"]
 
-posix_only = pytest.mark.skipif(
-    sys.platform == "win32" or not hasattr(os, "openpty"), reason="needs a POSIX pseudo-terminal"
-)
+# Only Linux pseudo-terminals accept the settings QSerialPort applies when it opens a
+# port (macOS refuses them), and the os pty helpers do not exist on Windows.
+if sys.platform == "linux":
 
+    class RecordingPort(QtSerialPort):
+        """Remembers the mode the port was opened with (checked on the worker thread)."""
 
-class RecordingPort(QtSerialPort):
-    """Remembers the mode the port was opened with (checked on the worker thread)."""
+        modes: list[QSerialPort.OpenModeFlag] = []
 
-    modes: list[QSerialPort.OpenModeFlag] = []
+        def open(self) -> None:
+            super().open()
+            assert self._port is not None
+            RecordingPort.modes.append(self._port.openMode())
 
-    def open(self) -> None:
-        super().open()
-        assert self._port is not None
-        RecordingPort.modes.append(self._port.openMode())
+    def test_qt_port_reads_a_tty_read_only_and_releases_it(qapp) -> None:
+        master, slave = os.openpty()
+        name = os.ttyname(slave)
+        ports: list[RecordingPort] = []
 
+        def opener(port_name: str) -> RecordingPort:
+            ports.append(RecordingPort(port_name))
+            return ports[-1]
 
-@posix_only
-def test_qt_port_reads_a_tty_read_only_and_releases_it(qapp) -> None:
-    master, slave = os.openpty()
-    name = os.ttyname(slave)
-    ports: list[RecordingPort] = []
-
-    def opener(port_name: str) -> RecordingPort:
-        ports.append(RecordingPort(port_name))
-        return ports[-1]
-
-    source = SerialLiveSource(name, opener, read_timeout_s=0.02)
-    try:
-        source.open()
-        source.start()
-        until(lambda: source.link_status().connected, "the tty was not opened")
-        os.write(master, GOLDEN_STREAM)
-        until(lambda: source.link_status().packets == 2, "the tty stream was not decoded")
-        assert source.link_status().rejected_frames == 1
-        assert RecordingPort.modes[-1] == QSerialPort.OpenModeFlag.ReadOnly
-        os.set_blocking(master, False)
-        with pytest.raises(BlockingIOError):
-            os.read(master, 64)  # nothing was written towards the device
-        assert source.close(2.0)
-        assert source.state is SourceState.CLOSED
-        assert not ports[0].is_open
-    finally:
-        source.close(2.0)
-        os.close(master)
-        os.close(slave)
+        source = SerialLiveSource(name, opener, read_timeout_s=0.02)
+        try:
+            source.open()
+            source.start()
+            until(lambda: source.link_status().connected, "the tty was not opened")
+            os.write(master, GOLDEN_STREAM)
+            until(lambda: source.link_status().packets == 2, "the tty stream was not decoded")
+            assert source.link_status().rejected_frames == 1
+            assert RecordingPort.modes[-1] == QSerialPort.OpenModeFlag.ReadOnly
+            os.set_blocking(master, False)
+            with pytest.raises(BlockingIOError):
+                os.read(master, 64)  # nothing was written towards the device
+            assert source.close(2.0)
+            assert source.state is SourceState.CLOSED
+            assert not ports[0].is_open
+        finally:
+            source.close(2.0)
+            os.close(master)
+            os.close(slave)
 
 
 def test_missing_port_is_a_readable_error(qapp) -> None:
