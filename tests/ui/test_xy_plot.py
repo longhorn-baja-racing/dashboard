@@ -127,3 +127,23 @@ def test_axis_label_without_unit() -> None:
 def test_invalid_point_limit_is_rejected() -> None:
     with pytest.raises(ValueError, match="max_points must be >= 2"):
         XYPlotWidget(max_points=1)
+
+
+def test_clear_removes_pairs_and_highlight(widget: XYPlotWidget) -> None:
+    widget.show_pairs(_speed_vs_temperature(), "Speed", "Temp")
+    widget.highlight_time(0)
+    widget.clear("Choose two signals.")
+    assert len(widget.scatter.getData()[0]) == 0
+    assert not widget.marker.isVisible()
+    assert widget.highlight_time(0) is None
+    assert widget.note_label.text() == "Choose two signals."
+
+
+def test_show_pairs_without_fit_keeps_the_view(widget: XYPlotWidget) -> None:
+    widget.show_pairs(_speed_vs_temperature(), "Speed", "Temp")
+    view = widget.plot_widget.getPlotItem().getViewBox()  # type: ignore[union-attr]
+    view.setRange(xRange=(100, 200), yRange=(100, 200), padding=0)
+    widget.show_pairs(_speed_vs_temperature(), "Speed", "Temp", fit=False)
+    assert view.viewRange()[0] == pytest.approx([100, 200])
+    widget.show_pairs(_speed_vs_temperature(), "Speed", "Temp")
+    assert view.autoRangeEnabled()[0]

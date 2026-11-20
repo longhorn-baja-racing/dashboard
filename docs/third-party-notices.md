@@ -37,7 +37,10 @@ without notices fails CI.
 ## Items for the packaging work (#52, #53, #56)
 
 The portable ZIP ([portable-build.md](portable-build.md)) covers the first
-four; the installer and releases reuse that build.
+four. The installer ([windows-installer.md](windows-installer.md)) is built
+from that ZIP, so it installs the same `LICENSE` and `notices/` folder, and
+every release ([releasing.md](releasing.md)) also publishes
+`THIRD-PARTY-NOTICES.txt` as a separate download.
 
 - [x] Copy the `--out` folder and the dashboard `LICENSE` into every ZIP and
       installer, and fail the build if any component has no license file.

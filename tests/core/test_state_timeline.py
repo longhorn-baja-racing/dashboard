@@ -14,6 +14,7 @@ from lbr_dashboard.core.state_timeline import (
     StateSegment,
     StateTimeline,
     build_state_timeline,
+    category_value,
 )
 
 STATE = SegmentKind.STATE
@@ -416,3 +417,36 @@ def test_combined_events_with_one_state_keep_it() -> None:
 
 def test_segment_duration_property() -> None:
     assert StateSegment(5, 12, STATE, 1, "1").duration_ns == 7
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param({"state": "idle"}, "state=idle", id="status"),
+        pytest.param(
+            {"code": 3, "ok": True, "note": None}, "code=3, ok=true, note=None", id="flat"
+        ),
+        pytest.param({"name": ""}, "name=(empty string)", id="empty-string"),
+        pytest.param("open", "open", id="text"),
+        pytest.param(True, True, id="bool"),
+    ],
+)
+def test_status_and_event_records_become_one_category(value: object, expected: object) -> None:
+    assert category_value(value) == expected
+
+
+@pytest.mark.parametrize("value", [{}, {"nested": {"a": 1}}, {"items": [1, 2]}, [1, 2]], ids=str)
+def test_records_that_are_not_flat_stay_unchanged(value: object) -> None:
+    assert category_value(value) is value
+
+
+def test_equal_records_form_one_state_segment() -> None:
+    records = ({"state": "idle"}, {"state": "idle"}, {"state": "ready"})
+    timeline = build_state_timeline(
+        [0, 10, 20], [category_value(item) for item in records], data_end_ns=30
+    )
+    assert [(item.start_ns, item.end_ns, item.label) for item in timeline.segments] == [
+        (0, 20, "state=idle"),
+        (20, 30, "state=ready"),
+    ]
+    assert build_state_timeline([0], [{"a": [1]}]).events[0].kind is UNSUPPORTED

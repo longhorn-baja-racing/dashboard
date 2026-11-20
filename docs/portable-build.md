@@ -1,8 +1,8 @@
 # Portable Windows build
 
 Issue #52. The first way to hand the dashboard to someone without Python is a
-ZIP they extract and run. The installer (#53) and releases (#56) wrap this
-same build.
+ZIP they extract and run. The [installer](windows-installer.md) (#53) and
+[releases](releasing.md) (#56) wrap this same build.
 
 ## Build it
 
@@ -88,9 +88,11 @@ under `%LOCALAPPDATA%`:
 | Logs | `%LOCALAPPDATA%\LBR Dashboard\logs` | #25 / #131 |
 | Preferences | `%LOCALAPPDATA%\LonghornBaja\dashboard\preferences.json` | #24 / #126 |
 
-Those two PRs currently use different folder names. It would be simpler for
-users (and for the installer's "keep my data" rule in #53) if they shared one
-root, for example `%LOCALAPPDATA%\LBR Dashboard\`.
+Those two PRs currently use different folder names. The installer's
+uninstaller keeps both unless the user asks to delete them; it would still be
+simpler for users if they shared one root, for example
+`%LOCALAPPDATA%\LBR Dashboard\`. If they move, update the folder names in
+`packaging/installer.iss` (a test checks they match the code).
 
 ## The smoke test
 
@@ -129,4 +131,6 @@ user:
       and check `report.txt` ends with `self-test passed`.
 - [ ] Check Properties > Details on the exe shows the expected version.
 
-Signing, an installer and automatic updates are out of scope here (#53, #56).
+The installer is described in [windows-installer.md](windows-installer.md)
+and publishing in [releasing.md](releasing.md). Signing and automatic updates
+are out of scope for now.
