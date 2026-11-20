@@ -162,7 +162,8 @@ def test_empty_and_single_sample_inputs() -> None:
     assert empty.input_count == 0 and empty.values.size == 0
     assert empty.nominal_period_ns is None
     assert empty.window_span_ns is None
-    assert empty.delay_ns == 0.0
+    assert empty.delay_ns is None
+    assert empty.max_spacing_deviation is None
 
     single = moving_average([5], [2.0], window_samples=1, alignment="trailing")
     assert single.values_or_none() == [2.0]
@@ -192,6 +193,74 @@ def test_irregular_sampling_is_rejected(times: list[int]) -> None:
     with pytest.raises(IrregularSamplingError, match="nominal period 100 ns") as caught:
         moving_average(times, [1.0] * len(times), window_samples=3)
     assert isinstance(caught.value, ValueError)
+
+
+def test_delay_is_unknown_without_a_period_for_both_alignments() -> None:
+    for alignment, window in (("centered", 1), ("trailing", 2)):
+        assert moving_average([], [], window_samples=window, alignment=alignment).delay_ns is None
+        single = moving_average([5], [2.0], window_samples=window, alignment=alignment)
+        assert single.delay_ns is None
+
+
+def test_spacing_jitter_is_reported_on_the_result() -> None:
+    regular = moving_average(_times(6, 100), [1.0] * 6, window_samples=3)
+    assert regular.max_spacing_deviation == 0.0
+    # Spacings 100, 109, 91, 100, 100: median 100, worst deviation 9 ns.
+    jittery = moving_average(
+        [0, 100, 209, 300, 400, 500], [1.0] * 6, window_samples=3, jitter_tolerance=0.1
+    )
+    assert jittery.nominal_period_ns == 100.0
+    assert jittery.max_spacing_deviation == pytest.approx(0.09)
+    assert jittery.values_or_none() == regular.values_or_none()
+    # Time gaps are not jitter.
+    gapped = moving_average([0, 100, 200, 900, 1000], [1.0] * 5, window_samples=1, gap_ns=500)
+    assert gapped.max_spacing_deviation == 0.0
+
+
+def test_deviation_equal_to_the_tolerance_is_accepted() -> None:
+    times = [0, 100, 200, 310, 400, 500]  # Spacings 100, 100, 110, 90, 100.
+    result = moving_average(times, [1.0] * 6, window_samples=1, jitter_tolerance=0.1)
+    assert result.max_spacing_deviation == pytest.approx(0.1)
+    with pytest.raises(IrregularSamplingError):
+        moving_average(times, [1.0] * 6, window_samples=1, jitter_tolerance=0.099)
+
+
+def test_spacing_equal_to_gap_ns_is_a_gap() -> None:
+    times = [0, 100, 200, 700, 800, 900]
+    result = moving_average(times, [1.0] * 6, window_samples=3, gap_ns=500)
+    assert result.segment_count == 2
+    assert result.values_or_none() == [None, 1.0, None, None, 1.0, None]
+    with pytest.raises(IrregularSamplingError, match="spacing 500 ns"):
+        moving_average(times, [1.0] * 6, window_samples=3, gap_ns=501)
+
+
+def test_all_spacings_are_gaps_leaves_no_period() -> None:
+    result = moving_average([0, 1000, 2000], [1.0, 2.0, 3.0], window_samples=1, gap_ns=500)
+    assert result.nominal_period_ns is None
+    assert result.max_spacing_deviation is None
+    assert result.window_span_ns is None and result.delay_ns is None
+    assert result.segment_count == 3
+    assert result.values_or_none() == [1.0, 2.0, 3.0]
+
+
+def test_values_near_the_float_limit_are_averaged_without_overflow() -> None:
+    result = moving_average(_times(3), [1e308, 1e308, 1e308], window_samples=3)
+    assert result.values_or_none() == [None, pytest.approx(1e308, rel=1e-12), None]
+    assert (result.output_count, result.edge_count, result.overflow_count) == (1, 2, 0)
+
+
+def test_unrepresentable_mean_is_flagged_not_emitted() -> None:
+    big = float(np.finfo(np.float64).max)
+    # Three values at the float limit: max / 3 rounds up, so even the scaled
+    # sum is past the limit and the mean cannot be represented.
+    result = moving_average(_times(5), [big, big, big, 1.0, 1.0], window_samples=3)
+    values = result.values_or_none()
+    assert values[:2] == [None, None] and values[4] is None
+    # The later windows mix big values with 1.0 and are representable.
+    assert values[2] == pytest.approx(big / 3 * 2, rel=1e-12)
+    assert values[3] == pytest.approx(big / 3, rel=1e-12)
+    assert not np.isinf(result.values).any()
+    assert (result.overflow_count, result.edge_count, result.output_count) == (1, 2, 2)
 
 
 def test_zero_tolerance_requires_exact_spacing() -> None:

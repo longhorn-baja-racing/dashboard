@@ -13,12 +13,28 @@ EMPTY_TITLE = "No spectrum"
 Mode = Literal["amplitude", "psd"]
 
 
-def summary_text(result: Spectrum) -> str:
+def scaling_text(result: Spectrum, mode: Mode = "amplitude") -> str:
+    """Say what the plotted y values are and which window correction they carry."""
+
+    if mode == "psd":
+        return (
+            f"Scaling: one-sided PSD in {result.psd_unit}, corrected for window noise power "
+            f"(noise bandwidth {result.noise_bandwidth_bins:.3g} bins)"
+        )
+    unit = f" in {result.amplitude_unit}" if result.unit else ""
+    return (
+        f"Scaling: one-sided peak amplitude{unit}, corrected for window coherent gain "
+        f"(gain {result.coherent_gain:.3g})"
+    )
+
+
+def summary_text(result: Spectrum, mode: Mode = "amplitude") -> str:
     """Spell out sampling, scaling and the peak so the plot is never read blind."""
 
     peak = result.peak
     return "\n".join(
         [
+            scaling_text(result, mode),
             f"Sample rate: {result.sample_rate_hz:.6g} Hz  "
             f"Resolution: {result.resolution_hz:.6g} Hz  "
             f"Nyquist: {result.nyquist_hz:.6g} Hz  Samples: {result.sample_count}",
@@ -38,8 +54,10 @@ class SpectrumWidget(QWidget):
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground("#3a3a3a")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.2)
-        self.plot_widget.getAxis("bottom").setPen(pg.mkPen("#cccccc"))
-        self.plot_widget.getAxis("left").setPen(pg.mkPen("#cccccc"))
+        for name in ("bottom", "left"):
+            axis = self.plot_widget.getAxis(name)
+            axis.setPen(pg.mkPen("#cccccc"))
+            axis.setTextPen(pg.mkPen("#cccccc"))
         self.summary = QLabel()
         self.summary.setWordWrap(True)
         self.curve: pg.PlotDataItem | None = None
@@ -56,19 +74,21 @@ class SpectrumWidget(QWidget):
         """Remove the curve, peak marker and summary."""
 
         self.plot_widget.clear()
+        self.plot_widget.show()
         self.curve = None
         self.peak_marker = None
-        self.plot_widget.setTitle(EMPTY_TITLE, color="#aaaaaa")
+        self._set_title(EMPTY_TITLE)
         self.plot_widget.setLabel("bottom", "frequency (Hz)")
         self.plot_widget.setLabel("left", "")
         self.summary.setText("")
 
     def show_error(self, name: str, message: str) -> None:
-        """Show why no spectrum was computed, with no curve that could be misread."""
+        """Show why no spectrum was computed in place of the plot, so nothing can be misread."""
 
         self.clear()
-        self.plot_widget.setTitle(f"{name}: no spectrum", color="#aaaaaa")
-        self.summary.setText(message)
+        self._set_title(f"{name}: no spectrum")
+        self.plot_widget.hide()
+        self.summary.setText(f"{name}: no spectrum. {message}")
 
     def show_spectrum(self, result: Spectrum, name: str, mode: Mode = "amplitude") -> None:
         """Draw ``result`` for the signal ``name`` as amplitude or PSD."""
@@ -85,7 +105,7 @@ class SpectrumWidget(QWidget):
         peak = result.peak
         peak_y = peak.psd if mode == "psd" else peak.amplitude
         self.plot_widget.setLabel("left", label)
-        self.plot_widget.setTitle(f"{name} {mode} spectrum", color="#aaaaaa")
+        self._set_title(f"{name} {mode} spectrum")
         self.curve = self.plot_widget.plot(
             result.frequencies_hz, ys, pen=pg.mkPen("#4c9be8", width=1)
         )
@@ -93,5 +113,10 @@ class SpectrumWidget(QWidget):
             [peak.frequency_hz], [peak_y], symbol="o", size=8, brush="#e8a24c"
         )
         self.plot_widget.addItem(self.peak_marker)
-        self.summary.setText(summary_text(result))
+        self.summary.setText(summary_text(result, mode))
         self.plot_widget.enableAutoRange()
+
+    def _set_title(self, text: str) -> None:
+        # Follow the axis text color so a themed plot keeps a readable title.
+        color = self.plot_widget.getAxis("left").textPen().color().name()
+        self.plot_widget.setTitle(text, color=color)
