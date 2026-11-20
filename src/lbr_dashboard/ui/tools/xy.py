@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from ...core import SignalDescriptor
 from ...core.interval import TimeInterval
 from ...core.xy_pairing import AlignmentPolicy, pair_signals
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 from ..xy_plot import DEFAULT_MAX_POINTS, XYPlotWidget, format_duration_ns
 
 DEFAULT_TOLERANCE_NS = 100_000_000
@@ -116,7 +116,7 @@ class XYTool(QWidget):
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.refresh)
         for change in (context.snapshot_changed, context.interval_changed):
-            change.connect(self.timer.start)
+            change.connect(refresh_soon(self.timer))
         context.cursor_changed.connect(self._highlight)
         self.refresh()
 

@@ -38,7 +38,7 @@ from ...core.filters import (
     MovingAverageParams,
     moving_average,
 )
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 from ..filter_overlay import filtered_name, filtered_points, plot_filtered
 from ..right_panel import RightPanel
 
@@ -140,7 +140,7 @@ class FilterTool(QWidget):
         self.timer.setSingleShot(True)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.refresh)
-        context.snapshot_changed.connect(self.timer.start)
+        context.snapshot_changed.connect(refresh_soon(self.timer))
         context.signal_changed.connect(self._signal_changed)
         context.theme_changed.connect(self._restyle_legend)
         if panel is not None:

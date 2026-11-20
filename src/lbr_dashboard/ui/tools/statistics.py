@@ -6,7 +6,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from ...core.statistics import current_value, interval_statistics
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 from ..statistics_panel import StatisticsPanel
 
 
@@ -32,7 +32,7 @@ class StatisticsTool(QWidget):
             context.cursor_changed,
             context.interval_changed,
         ):
-            change.connect(self.timer.start)
+            change.connect(refresh_soon(self.timer))
         self.refresh()
 
     def refresh(self) -> None:

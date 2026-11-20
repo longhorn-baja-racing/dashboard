@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QVBoxLayout, QWidg
 
 from ...core.spectrum import DETRENDS, WINDOWS, SamplingError, spectrum
 from ...core.statistics import format_seconds
-from ..analysis import AnalysisContext, AnalysisTool, is_numeric
+from ..analysis import AnalysisContext, AnalysisTool, is_numeric, refresh_soon
 from ..spectrum_widget import SpectrumWidget
 
 WINDOW_LABELS = {"hann": "Hann", "none": "None (rectangular)"}
@@ -58,9 +58,9 @@ class SpectrumTool(QWidget):
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.refresh)
         for change in (context.snapshot_changed, context.signal_changed, context.interval_changed):
-            change.connect(self.timer.start)
+            change.connect(refresh_soon(self.timer))
         for combo in (self.window_choice, self.detrend_choice, self.scale_choice):
-            combo.currentIndexChanged.connect(self.timer.start)
+            combo.currentIndexChanged.connect(refresh_soon(self.timer))
         self.refresh()
 
     def configuration(self) -> dict[str, str]:

@@ -196,3 +196,29 @@ def test_tool_modules_are_discovered_alphabetically_with_unique_keys():
     keys = [tool.key for tool in TOOLS]
     assert len(keys) == len(set(keys))
     assert {"statistics", "histogram", "spectrum"} <= set(keys)
+
+
+def test_tools_still_refresh_while_changes_keep_arriving(qtbot):
+    from PySide6.QtCore import QTimer
+
+    from lbr_dashboard.ui.analysis import AnalysisContext, refresh_soon
+
+    context = AnalysisContext()
+    timer = QTimer()
+    timer.setSingleShot(True)
+    timer.setInterval(100)
+    refreshed: list[int] = []
+    timer.timeout.connect(lambda: refreshed.append(1))
+    context.snapshot_changed.connect(refresh_soon(timer))
+    # A source delivering a snapshot every 20 ms, faster than the 100 ms refresh.
+    pulse = QTimer()
+    pulse.setInterval(20)
+    pulse.timeout.connect(context.snapshot_changed.emit)
+    pulse.start()
+    try:
+        qtbot.waitUntil(lambda: len(refreshed) >= 2, timeout=2000)
+    finally:
+        pulse.stop()
+    timer.deleteLater()
+    qtbot.waitUntil(lambda: context.receivers("2snapshot_changed()") == 0)
+    context.snapshot_changed.emit()
