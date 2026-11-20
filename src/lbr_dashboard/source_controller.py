@@ -21,6 +21,7 @@ from .core import (
     example_signals,
 )
 from .importers.csv_source import prepare_csv
+from .importers.lbrlog_source import prepare_lbrlog
 from .replay_controller import ReplayController
 from .ui.main_window import MainWindow
 
@@ -32,6 +33,24 @@ class SourceOption:
     prepare: Callable[[CancellationToken], Callable[[], TelemetrySource]]
 
 
+#: ``progress(done, total)`` from a preparation worker.
+Progress = Callable[[int, int], None]
+
+
+@dataclass(frozen=True)
+class FileSourceOption:
+    """A replay source read from a file chosen in an open dialog."""
+
+    key: str
+    label: str
+    file_filter: str
+    prepare: Callable[[Path, CancellationToken, Progress], Callable[[], TelemetrySource]]
+
+
+def _prepare_lbrlog(path: Path, token: CancellationToken, progress: Progress):
+    return prepare_lbrlog(path, token, progress).source
+
+
 class SourceController(QObject):
     """Poll on the Qt owner; workers never call widgets or own presentation state."""
 
@@ -41,6 +60,8 @@ class SourceController(QObject):
         self.source: TelemetrySource | None = None
         self.session: TelemetrySession | None = None
         self._options: dict[str, SourceOption] = {}
+        self._file_options: dict[str, FileSourceOption] = {}
+        self._progress: tuple[int, int] | None = None
         self._preparing: BackgroundService | None = None
         self._prepared: list[Callable[[], TelemetrySource]] = []
         self._next: Callable[[], TelemetrySource] | None = None
@@ -70,6 +91,14 @@ class SourceController(QObject):
                 )
 
             self.register(SourceOption(family, f"Fictional {family} simulator", prepare))
+        self.register_file(
+            FileSourceOption(
+                "lbrlog",
+                "Firmware log (.lbrlog)",
+                "Firmware logs (*.lbrlog *.LBRLOG *.lbr *.LBR);;All files (*)",
+                _prepare_lbrlog,
+            )
+        )
         window.source_picker.connect_requested.connect(self.choose)
         window.source_picker.disconnect_requested.connect(self.disconnect)
         window.source_picker.retry_requested.connect(self.retry)
@@ -90,6 +119,14 @@ class SourceController(QObject):
         if picker.choices.findData(option.key) < 0:
             picker.choices.addItem(option.label, option.key)
 
+    def register_file(self, option: FileSourceOption) -> None:
+        if option.key in self._options or option.key in self._file_options:
+            raise ValueError(f"Source option already registered: {option.key}")
+        self._file_options[option.key] = option
+        picker = self.window.source_picker
+        if picker.choices.findData(option.key) < 0:
+            picker.choices.addItem(option.label, option.key)
+
     def choose(self, key: str) -> None:
         if key == "csv":
             file_path, _ = QFileDialog.getOpenFileName(
@@ -97,8 +134,28 @@ class SourceController(QObject):
             )
             if file_path:
                 self.open_csv(Path(file_path))
+        elif key in self._file_options:
+            option = self._file_options[key]
+            file_path, _ = QFileDialog.getOpenFileName(
+                self.window, f"Open {option.label}", "", option.file_filter
+            )
+            if file_path:
+                self.open_file(key, Path(file_path))
         else:
             self.request(self._options[key])
+
+    def open_file(self, key: str, path: Path) -> None:
+        option = self._file_options[key]
+
+        def prepare(token):
+            def progress(done: int, total: int) -> None:
+                # Runs on the worker; a cancelled worker cannot report into a newer request.
+                if not token.is_cancelled:
+                    self._progress = (done, total)
+
+            return option.prepare(path, token, progress)
+
+        self.request(SourceOption(key, f"{option.label} {path}", prepare))
 
     def open_csv(self, path: Path) -> None:
         def prepare(token):
@@ -112,6 +169,7 @@ class SourceController(QObject):
             return
         self._last = option
         self._prepared = []
+        self._progress = None
         self._cancel_preparation = False
         self._preparation_cancel_started = None
         self._notice = f"Preparing {option.label} - Disconnect cancels."
@@ -243,6 +301,14 @@ class SourceController(QObject):
                 "Preparation cleanup is still pending. "
                 "Waiting for the adapter to release its worker."
             )
+        progress = self._progress
+        if self._preparing is not None and progress and not self._cancel_preparation:
+            done, total = progress
+            if total:
+                self._notice = (
+                    f"Preparing {self._last.label if self._last else 'source'} - "
+                    f"{min(100, done * 100 // total)}% read - Disconnect cancels."
+                )
         if self._preparing is not None and self._preparing.join(0):
             failure = self._preparing.failure
             self._preparing = None
