@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
 
 from ..core import SessionSnapshot, SignalDescriptor
 from ..core.interval import IntervalSelection, TimeInterval
+from ..core.source_monitor import SourceMonitorReport
 from .interval_region import IntervalRegion, PlotTimeScale
 from .plot_style import apply_plot_colors
 
@@ -38,6 +39,7 @@ class AnalysisContext(QObject):
     cursor_changed = Signal()
     interval_changed = Signal()
     theme_changed = Signal()
+    source_health_changed = Signal()
     plot_changed = Signal()
     seek_requested = Signal(object)
 
@@ -54,6 +56,7 @@ class AnalysisContext(QObject):
         self.plot_signal_id: str | None = None
         self.selection = IntervalSelection()
         self.plot_colors = ("#202020", "#eeeeee")
+        self.source_health: SourceMonitorReport | None = None
         self._descriptors: dict[str, SignalDescriptor] = {}
         self.selection.subscribe(lambda _interval: self.interval_changed.emit())
 
@@ -115,6 +118,13 @@ class AnalysisContext(QObject):
             self.following_live = live
             self.cursor_changed.emit()
 
+    def set_source_health(self, report: SourceMonitorReport | None) -> None:
+        """Publish the latest health of the active (or last) source."""
+
+        if report != self.source_health:
+            self.source_health = report
+            self.source_health_changed.emit()
+
     def request_seek(self, time_ns: int) -> None:
         """Ask the replay clock to move its cursor to ``time_ns`` (session time)."""
 
@@ -158,6 +168,7 @@ class AnalysisContext(QObject):
 
         self.set_snapshot(None, None)
         self.set_cursor(None)
+        self.set_source_health(None)
 
     def numeric_series(
         self, signal_id: str, interval: TimeInterval | None = None

@@ -674,6 +674,32 @@ def status_text(snapshot: SourceHealthSnapshot) -> str:
     return "Connected, live" if connected else "Live (connection unknown)"
 
 
+def summary_text(snapshot: SourceHealthSnapshot) -> str:
+    """One short line: headline, arrival age, rate and observable loss.
+
+    Ages are rounded to 0.1 s so the line does not flicker while data streams.
+    """
+
+    parts = [status_text(snapshot)]
+    age = snapshot.age_ns
+    parts.append("no data yet" if age is None else f"last data {age / S:.1f} s ago")
+    if snapshot.rate_hz is not None:
+        parts.append(format_rate(snapshot.rate_hz))
+    counts = snapshot.sequence
+    if counts is None:
+        parts.append("loss unknown (no sequence numbers)")
+    else:
+        parts.append(
+            f"lost {counts.lost}, {counts.duplicates} duplicates, "
+            f"{counts.out_of_order} out of order"
+        )
+    if snapshot.overflow_dropped:
+        parts.append(f"dashboard dropped {snapshot.overflow_dropped}")
+    if snapshot.decode_errors:
+        parts.append(f"decode errors {snapshot.decode_errors}")
+    return " | ".join(parts)
+
+
 def _connection_text(snapshot: SourceHealthSnapshot) -> str:
     counts = f"{snapshot.connects} connects, {snapshot.disconnects} disconnects"
     if snapshot.connection is ConnectionState.UNKNOWN:

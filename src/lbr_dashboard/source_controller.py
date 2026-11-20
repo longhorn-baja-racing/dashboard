@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from time import monotonic
+from time import monotonic, monotonic_ns
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QAbstractItemView, QFileDialog
@@ -21,6 +21,8 @@ from .core import (
     example_signals,
 )
 from .core.csv_mapping import CsvMapping
+from .core.source_health import summary_text
+from .core.source_monitor import SourceHealthMonitor
 from .importers.csv_source import MAPPED_PREVIEW_ROWS, prepare_csv, prepare_mapped_csv
 from .importers.lbrlog_source import prepare_lbrlog
 from .importers.mapped_csv import CsvMappingError, MappedCsvImporter, read_sample, suggest_mapping
@@ -84,6 +86,8 @@ class SourceController(QObject):
         self._displayed_schema: SignalSchema | None = None
         self._finished_rendered = False
         self._legacy_loaded = False
+        self.health_clock: Callable[[], int] = monotonic_ns
+        self.health: SourceHealthMonitor | None = None
         self.mapping_dialog: CsvMappingDialog | None = None
         self.replay = ReplayController(window)
         for family in ("process", "motion", "live"):
@@ -281,6 +285,7 @@ class SourceController(QObject):
             self.window.workspace_docks.update_snapshot(None)
             self.window.analysis.clear()
             self.window.analysis_docks.leave_plot()
+            self.health = None
             self._legacy_loaded = True
             self._notice = (
                 "Legacy CSV table loaded. Use the source picker for timestamped sessions."
@@ -307,6 +312,7 @@ class SourceController(QObject):
     def _start(self, factory: Callable[[], TelemetrySource]) -> None:
         try:
             self.source = factory()
+            self.health = SourceHealthMonitor(self.source, clock=self.health_clock)
             self.session = TelemetrySession(
                 self.source.schema,
                 max_samples_per_signal=1000 if self.source.capabilities.is_live else None,
@@ -397,7 +403,8 @@ class SourceController(QObject):
             and not self._releasing
             and not self._finished_rendered
         ):
-            self.session.ingest_source(self.source, limit=512)
+            observer = self.health.observe_events if self.health is not None else None
+            self.session.ingest_source(self.source, limit=512, observer=observer)
             snapshot = self.session.snapshot()
             replay_snapshot = snapshot
             finished = self.source.join(0) and self.source.events.stats.buffered == 0
@@ -425,6 +432,7 @@ class SourceController(QObject):
             ),
             busy=self._preparing is not None or self._releasing or self._closing,
         )
+        self.window.analysis.set_source_health(self.health.report() if self.health else None)
         self._present()
         if (
             self._closing
@@ -470,6 +478,11 @@ class SourceController(QObject):
                 detail += f" | {message}"
             message = detail
         picker.status.setText(message or "Idle - choose CSV or a fictional simulator.")
+        report = self.window.analysis.source_health
+        picker.show_health(
+            summary_text(report.health) if report else None,
+            report.health.status.value if report else "unknown",
+        )
 
     def select(self, index: int) -> None:
         self._selected = index

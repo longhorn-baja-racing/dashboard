@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections import deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import islice
 from threading import RLock
@@ -305,8 +305,19 @@ class TelemetrySession:
                 self._revision += 1
             return sum(event.kind is SourceEventKind.RECORD for event in batch)
 
-    def ingest_source(self, source: TelemetrySource, *, limit: int | None = None) -> int:
-        """Drain one known source on its owner thread; also retain persistent health."""
+    def ingest_source(
+        self,
+        source: TelemetrySource,
+        *,
+        limit: int | None = None,
+        observer: Callable[[tuple[SourceEvent, ...]], None] | None = None,
+    ) -> int:
+        """Drain one known source on its owner thread; also retain persistent health.
+
+        ``observer`` receives the drained batch after it was committed, for
+        example to time arrivals for source health. It is not called for a
+        rejected batch.
+        """
         if source.capabilities.is_live and self._capacity is None:
             raise ValueError("live ingestion requires max_samples_per_signal")
         if source.source_id not in self._sources:
@@ -319,9 +330,12 @@ class TelemetrySession:
         count = self._batch_capacity if limit is None else min(limit, self._batch_capacity)
         batch = source.events.drain(count)
         try:
-            return self.ingest(batch, source_health={source.source_id: source.health()})
+            count = self.ingest(batch, source_health={source.source_id: source.health()})
         except Exception as error:
             raise RejectedSourceBatch(batch) from error
+        if observer is not None:
+            observer(batch)
+        return count
 
     def snapshot(self) -> SessionSnapshot:
         with self._lock:
