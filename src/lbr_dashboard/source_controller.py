@@ -30,6 +30,8 @@ class SourceOption:
     key: str
     label: str
     prepare: Callable[[CancellationToken], Callable[[], TelemetrySource]]
+    path: Path | None = None
+    """The file the source reads, or None for sources without one."""
 
 
 class SourceController(QObject):
@@ -40,6 +42,7 @@ class SourceController(QObject):
         self.window = window
         self.source: TelemetrySource | None = None
         self.session: TelemetrySession | None = None
+        self.log_path: Path | None = None
         self._options: dict[str, SourceOption] = {}
         self._preparing: BackgroundService | None = None
         self._prepared: list[Callable[[], TelemetrySource]] = []
@@ -105,7 +108,7 @@ class SourceController(QObject):
             prepared = prepare_csv(path, token)
             return prepared.source
 
-        self.request(SourceOption("csv", str(path), prepare))
+        self.request(SourceOption("csv", str(path), prepare, path))
 
     def request(self, option: SourceOption) -> None:
         if self._preparing is not None or self._releasing or self._closing:
@@ -214,6 +217,7 @@ class SourceController(QObject):
             self.source.start()
             self._legacy_loaded = False
             self._label = self._last.label if self._last else self.source.source_id
+            self.log_path = self._last.path if self._last else None
             self.window.display_telemetry_source()
             self._notice = ""
             self._revision = -1
@@ -367,7 +371,7 @@ class SourceController(QObject):
             return
         snapshot = self.session.snapshot()
         self.window.workspace_docks.update_snapshot(snapshot)
-        self.window.analysis.set_snapshot(self.session, snapshot)
+        self.window.analysis.set_snapshot(self.session, snapshot, log_path=self.log_path)
         descriptors = snapshot.schema.signals
         browser = self.window.left_panel.signal_browser
         previous_id = browser.selected_id
