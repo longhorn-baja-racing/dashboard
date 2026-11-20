@@ -121,6 +121,12 @@ class SessionSnapshot:
         records = self.series[signal_id]
         return (_time(records[0]), _time(records[-1])) if records else None
 
+    def at_or_before(self, signal_id: str, timestamp_ns: int) -> SessionRecord | None:
+        """Return the last measured record no later than the requested time."""
+        records = self.series[signal_id]
+        index = bisect_right(records, timestamp_ns, key=_time)
+        return records[index - 1] if index else None
+
     def arrival_order(self, signal_id: str) -> tuple[SessionRecord, ...]:
         """Recover source delivery order without rewriting measurement timestamps."""
         return tuple(sorted(self.series[signal_id], key=lambda item: item.sequence))

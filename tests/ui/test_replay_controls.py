@@ -242,7 +242,14 @@ def test_cursor_gesture_uses_the_shared_clock_and_exposes_missing_readings(
         assert frame.revision == previous.revision + 1
         assert cursor.value() == second_cursor.value() == position
         assert panel.selected_reading.text() == message
-        assert other.selected_reading.text() == readout.selected_reading.text() == message
+        assert other.selected_reading.text() == message
+        assert readout.value_widget is not None
+        display = readout.value_widget.display
+        assert display is not None
+        if time == 0 or time == 30_000_000:
+            assert display.has_value and display.timestamp_ns == time
+        else:
+            assert display.state_text == "UNAVAILABLE"
         assert window.replay_bar.slider.value() == round(time / 30_000_000 * SLIDER_STEPS)
 
 

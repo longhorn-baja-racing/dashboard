@@ -67,7 +67,8 @@ def test_native_docks_bind_move_reopen_and_remove_without_losing_valid_binding(q
     value = workspace.docks["workspace.value.2"]
     bind = next(button for button in value.findChildren(QPushButton) if "Bind" in button.text())
     qtbot.keyClick(bind, Qt.Key.Key_Space)
-    assert value.readout.text() == "Latest: ready"
+    assert value.value_widget is not None
+    assert value.value_widget.value_label.text() == '"ready"'
     window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, value)
     assert window.dockWidgetArea(value) == Qt.DockWidgetArea.LeftDockWidgetArea
     value.close()
@@ -75,7 +76,8 @@ def test_native_docks_bind_move_reopen_and_remove_without_losing_valid_binding(q
     value.toggleViewAction().trigger()
     assert value.isVisible() and value.binding == (state.identifier, "Bench")
     workspace.update_snapshot(None)
-    assert "Missing signal" in value.readout.text()
+    assert "Missing signal" in value.feedback.text()
+    assert value.value_widget.state_label.text() == "[NO DATA]"
     key = value.objectName()
     remove = next(button for button in value.findChildren(QPushButton) if "Remove" in button.text())
     qtbot.keyClick(remove, Qt.Key.Key_Space)
