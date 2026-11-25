@@ -37,7 +37,7 @@ jobs:
         run: uv run --locked python scripts/smoke_portable.py dist/portable
       - name: Upload the portable ZIP
         if: ${{ !cancelled() && hashFiles('dist/portable/*.zip') != '' }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: portable-windows-x64
           path: |
@@ -66,7 +66,7 @@ jobs:
           --older build/installer-old --keep-logs test-results/installer
       - name: Upload the installer
         if: ${{ !cancelled() && hashFiles('dist/installer/*.exe') != '' }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installer-windows-x64
           path: |
@@ -76,7 +76,7 @@ jobs:
           compression-level: 0
       - name: Upload the installer logs
         if: ${{ !cancelled() && hashFiles('test-results/installer/*') != '' }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installer-logs
           path: test-results/installer/
